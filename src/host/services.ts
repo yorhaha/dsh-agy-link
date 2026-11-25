@@ -18,7 +18,6 @@ import { AccountQuotaRefresher } from '../features/quota/freshness.ts'
 import { PoolAuthFlow } from './pool-auth.ts'
 import { QuotaService } from './quota.ts'
 import { createEffortUnsupportedStore } from './effort-unsupported-store.ts'
-import { WarmupService } from './warmup.ts'
 import { detectSystemProxy } from './wincred.ts'
 import { buildAgyEnv } from '../runtime/net/account-env.ts'
 import { StreamJsonParser } from './parser.ts'
@@ -150,25 +149,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
   }
 
   const effortStore = createEffortUnsupportedStore({ stateDir, notifyPicker, log })
-
-  // Constructed after `effortStore` so the probe can honour (and extend) the
-  // learned `--effort` refusal list: agy rejects the whole invocation when the
-  // flag is not valid for a model, and a warmup that never learns will fail for
-  // that family forever (observed on claude-sonnet-5-5, 2026-11-23).
-  const warmup = new WarmupService(
-    pool,
-    quota,
-    () => getConfig().proxyUrl || detectSystemProxy() || '',
-    version,
-    getConfig,
-    log,
-    undefined,
-    {
-      bin: () => bin(),
-      effortUnsupported: () => effortStore.read(),
-      onEffortUnsupported: (model) => effortStore.remember(model),
-    },
-  )
 
   const sessionWorkspace = (sessionId: string): string | undefined => {
     const sessions = ctx.get('sessions') as { get(id: unknown): { header?: { cwd?: string } } | undefined } | undefined
@@ -521,7 +501,7 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
   }
 
   return {
-    getConfig, log, notifyPicker, bin, version, resolveVersion, status, store, pool, quota, warmup, semaphore,
+    getConfig, log, notifyPicker, bin, version, resolveVersion, status, store, pool, quota, semaphore,
     catalog, auth, poolAuth, runs, adapter, acpPool, backgroundWakeup, setOverride, armForcedPlan: forcedPlan.arm,
     readEffortUnsupported: effortStore.read,
     rememberEffortUnsupported: effortStore.remember,

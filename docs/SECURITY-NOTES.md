@@ -4,7 +4,7 @@ Threat model and security boundaries for `dsh-agy-link`. Authoritative specifica
 
 ## Process Execution & Risk Control
 
-- Only the official `agy` binary resolved from config (`agyBin`) or `PATH` / `~/.local/bin` is executed for model inference and quota warmup probes. No shell interpolation is used (`spawn` with explicit `argv` array, NUL-byte stripping, and detached process-group cleanup).
+- Only the official `agy` binary resolved from config (`agyBin`) or `PATH` / `~/.local/bin` is executed for model inference and quota probes. No shell interpolation is used (`spawn` with explicit `argv` array, NUL-byte stripping, and detached process-group cleanup).
 - Node.js never sends spoofed inference requests (`streamGenerateContent` / `generateContent`) or chimeric headers to Google endpoints; Node HTTP (`undici` via per-account proxy dispatchers) is restricted strictly to OAuth token refresh/userinfo and consumer quota summary reads (`daily-cloudcode-pa.googleapis.com` / `daily-cloudcode-pa.sandbox.googleapis.com`).
 - `skip` (`--dangerously-skip-permissions`) auto-approves ordinary AGY tool prompts inside the session workspace while preserving AGY's built-in system protections. In `plan` or `accept-edits` print mode, interactive prompts are denied by `agy` with an actionable hint (`#121`).
 

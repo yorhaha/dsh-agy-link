@@ -62,9 +62,8 @@ test('status timeout is shorter than a write timeout', () => {
   assert.ok(STATUS_TIMEOUT_MS < WRITE_TIMEOUT_MS)
 })
 
-import { WARMUP_WRITE_TIMEOUT_MS, longRouteTimeout, ROUTE_TIMEOUT_MS } from '../src/common/timeouts.ts'
+import { longRouteTimeout, ROUTE_TIMEOUT_MS } from '../src/common/timeouts.ts'
 
-test('warmup timeout budget exceeds general route timeout', () => {
-  assert.ok(WARMUP_WRITE_TIMEOUT_MS > ROUTE_TIMEOUT_MS)
-  assert.ok(longRouteTimeout(WARMUP_WRITE_TIMEOUT_MS) > WARMUP_WRITE_TIMEOUT_MS)
+test('long-route budget extends the general route timeout', () => {
+  assert.ok(longRouteTimeout(ROUTE_TIMEOUT_MS * 3) > ROUTE_TIMEOUT_MS)
 })

@@ -38,7 +38,7 @@ export const inject = ['llm', 'commands']
 export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): void {
   const services = createHostServices(ctx, entryConfig)
   const {
-    getConfig, log, bin, version, store, pool, quota, warmup, catalog, auth, poolAuth, runs,
+    getConfig, log, bin, version, store, pool, quota, catalog, auth, poolAuth, runs,
     adapter, acpPool, setOverride, notifyPicker, readEffortUnsupported, rememberEffortUnsupported,
     sessionsSvc, mediaDir, bridgeState, webServerPort,
   } = services
@@ -385,29 +385,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
       void quota.reverifyFlaggedAccounts().catch(() => undefined).finally(() => { running = false })
     }, AUTH_FAST_REVERIFY_MS)
     timer.unref?.(); return () => clearInterval(timer)
-  })
-
-  // Scheduled weekly quota auto-warmup (opt-in): monitors 7-day quota windows
-  // and cold starts, triggering minimal 1-token probes to advance the upstream
-  // timer. No boot pass: the 5s quota refresh needs time to produce trustworthy
-  // weekly data first, and an upgrade must never probe on stale pool.json rows.
-  ctx.effect(() => {
-    if (!getConfig().enabled) return () => undefined
-    let running = false
-    const checkWarmup = (): void => {
-      if (running) return
-      const cfg = getConfig()
-      if (!cfg.enabled || !cfg.autoWarmup) return
-      running = true
-      void warmup.runScheduledWarmup()
-        .catch(() => undefined)
-        .finally(() => { running = false })
-    }
-    // Scan every 5 minutes (300s, matching Antigravity-Manager scheduler).
-    // The in-flight guard prevents a slow cycle from overlapping the next tick.
-    const timer = setInterval(checkWarmup, 300_000)
-    timer.unref?.()
-    return () => clearInterval(timer)
   })
 
   // The bridge restore hooks are shared with the pool routes through

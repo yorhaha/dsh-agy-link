@@ -12,7 +12,7 @@
 // run is just one more slot holder. No switching logic lives here.
 //
 // An isolated account on agy >= 1.5 never touches the slot, exactly like the
-// provider/ACP/warmup/quota paths: `SSH_CONNECTION` (in `isolatedHomeEnv`)
+// provider/ACP/quota paths: `SSH_CONNECTION` (in `isolatedHomeEnv`)
 // makes agy read the account's own token file, so the lease only prepares that
 // file and hands the caller the env. The primary account, and isolated accounts
 // on older agy, take the slot.

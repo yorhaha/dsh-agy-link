@@ -10,8 +10,8 @@
 //      `gemini-4-carbon` and the Claude 4.6 line are gone from agy 1.5.7).
 //
 //   2. `PREFERRED_*`: the ids the plugin itself reaches for when the user has
-//      expressed no preference (image generation, warmup,
-//      per-family account routing, `agy_ask` fallbacks). Each was previously
+//      expressed no preference (per-family account routing, `agy_ask`
+//      fallbacks). Each was previously
 //      a string literal repeated across features, which drifted every time a
 //      model was retired.
 //

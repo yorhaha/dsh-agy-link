@@ -127,7 +127,7 @@ export async function schemaArgs(schema: unknown): Promise<{ args: string[]; cle
  * constrained uplink its 30 s timeout plus a fixed 5 s retry (no backoff, no
  * retry cap, head-of-line batch never dropped) turns that into an unbounded
  * retransmission loop that saturates egress and slows the real model endpoint.
- * Every other spawn path (attempt / ACP / warmup / host services) already passes
+ * Every other spawn path (attempt / ACP / host services) already passes
  * the flag, so this closes the last gap.
  */
 export function oneshotEnv(cfg: PluginConfig, account?: ManagedAccount): NodeJS.ProcessEnv {

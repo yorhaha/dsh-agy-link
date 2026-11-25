@@ -1,5 +1,4 @@
 import type { HostServices } from '../../../host/services.ts'
-import { isTerminalAuthError } from '../../../common/pool-types.ts'
 import { normalizeModelFamily } from '../../../common/quota-bench.ts'
 import { runRoute, sendJson, readBody, methodOf, type RawRes, type RouteRegistrar } from '../respond.ts'
 import { QUOTA_REFRESH_DEDUP_MS } from '../../../common/timeouts.ts'
@@ -255,8 +254,6 @@ function handlePoolMode(services: HostServices, req: unknown, res: unknown): voi
  */
 const quotaRefreshInFlight = new Map<string, Promise<void>>();
 let catalogWarmInFlight: Promise<void> | null = null;
-const warmupInFlight = new Map<string, Promise<void>>();
-const WARMUP_DEDUP_MS = 180_000;
 
 function triggerCatalogWarm(services: HostServices): void {
   if (catalogWarmInFlight !== null) return
@@ -323,101 +320,6 @@ function handlePoolRefreshQuota(services: HostServices, req: unknown, res: unkno
         // quota numbers appear on their own — no HTTP request needs to stay
         // open for the whole network cascade.
         sendJson(res as RawRes, 200, { ok: true, pending: true, alreadyRunning, pool: pool.getPoolData() })
-      })
-}
-
-function isWarmupBusy(key: string, warmup: HostServices['warmup']): boolean {
-  if (warmupInFlight.has(key)) return true
-  if (key === '__all__' && warmupInFlight.size > 0) return true
-  if (key !== '__all__' && warmupInFlight.has('__all__')) return true
-  return typeof warmup?.isRunning === 'function' && warmup.isRunning()
-}
-
-function launchWarmupJob(
-  services: HostServices,
-  opts: { key: string; id: string; force: boolean; model?: string; ignoreFailureBackoff: boolean },
-): void {
-  const { pool, quota, warmup } = services
-  const { key, id, force, model, ignoreFailureBackoff } = opts
-  const work = (async () => {
-    if (id) {
-      const acc = pool.getAccount(id)
-      if (!acc) return
-      const results = await warmup.warmupAccount(acc, {
-        force,
-        ...(model !== undefined ? { model } : {}),
-        ...(ignoreFailureBackoff ? { ignoreFailureBackoff: true } : {}),
-      })
-      if (results.some((r) => r.success === true && !r.skipped)) {
-        await quota.refreshAccountQuota(acc, true).catch(() => undefined)
-      }
-      return
-    }
-    const results = await warmup.warmupAllAccounts({
-      force,
-      ...(ignoreFailureBackoff ? { ignoreFailureBackoff: true } : {}),
-    })
-    const succeededIds = new Set(
-      results.filter((r) => r.success === true && !r.skipped).map((r) => r.accountId),
-    )
-    for (const accId of succeededIds) {
-      const acc = pool.getAccount(accId)
-      if (acc && acc.enabled && !isTerminalAuthError(acc.authError)) {
-        await quota.refreshAccountQuota(acc, true).catch(() => undefined)
-      }
-    }
-  })().catch(() => undefined)
-
-  let releaseTimer: ReturnType<typeof setTimeout> | undefined
-  const entry: Promise<void> = work.finally(() => {
-    if (releaseTimer !== undefined) clearTimeout(releaseTimer)
-    if (warmupInFlight.get(key) === entry) warmupInFlight.delete(key)
-  })
-  warmupInFlight.set(key, entry)
-  releaseTimer = setTimeout(() => {
-    if (warmupInFlight.get(key) === entry) warmupInFlight.delete(key)
-  }, WARMUP_DEDUP_MS)
-  releaseTimer.unref?.()
-}
-
-function handlePoolWarmup(services: HostServices, req: unknown, res: unknown): void {
-  const { pool, warmup } = services
-      runRoute(res, async () => {
-        if (methodOf(req) !== 'POST') {
-          sendJson(res as RawRes, 405, { error: 'POST only' })
-          return
-        }
-        const body = await readBody(req, true)
-        if (body.__invalidJson === true) {
-          sendJson(res as RawRes, 400, { error: 'invalid JSON body' })
-          return
-        }
-        const id = typeof body.id === 'string' ? body.id : ''
-        const force = body.force === true
-        const ignoreFailureBackoff = body.ignoreFailureBackoff === true
-        const rawModel = body.model
-        if (rawModel !== undefined && (typeof rawModel !== 'string' || !/^[A-Za-z0-9._/-]{1,80}$/.test(rawModel))) {
-          sendJson(res as RawRes, 400, { error: 'invalid model' })
-          return
-        }
-        const model = typeof rawModel === 'string' ? rawModel : undefined
-        // Never let an empty/malformed body fan out to every account: the
-        // caller must say either `{ id }` or `{ all: true }` explicitly.
-        if (id === '' && body.all !== true) {
-          sendJson(res as RawRes, 400, { error: 'id or { all: true } required' })
-          return
-        }
-        if (id && !pool.getAccount(id)) {
-          sendJson(res as RawRes, 404, { error: 'Account not found' })
-          return
-        }
-        const key = id || '__all__'
-        const alreadyRunning = isWarmupBusy(key, warmup)
-        if (!alreadyRunning) {
-          launchWarmupJob(services, { key, id, force, model, ignoreFailureBackoff })
-        }
-        const warmupState = typeof warmup?.status === 'function' ? warmup.status() : null
-        sendJson(res as RawRes, 200, { ok: true, pending: true, alreadyRunning, warmupState, pool: pool.getPoolData() })
       })
 }
 
@@ -546,7 +448,6 @@ export function register(reg: RouteRegistrar, services: HostServices): void {
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/primary', handler: (req, res) => handlePoolPrimary(services, req, res) })
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/mode', handler: (req, res) => handlePoolMode(services, req, res) })
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/refresh-quota', handler: (req, res) => handlePoolRefreshQuota(services, req, res) })
-  reg({ kind: 'exact', path: '/plugins/agy-link/pool/warmup', handler: (req, res) => handlePoolWarmup(services, req, res) })
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/clear-cooldown', handler: (req, res) => handlePoolClearCooldown(services, req, res) })
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/set-active', handler: (req, res) => handlePoolSetActive(services, req, res) })
   reg({ kind: 'exact', path: '/plugins/agy-link/pool/reorder', handler: (req, res) => handlePoolReorder(services, req, res) })

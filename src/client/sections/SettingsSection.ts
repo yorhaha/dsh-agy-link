@@ -127,11 +127,9 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 
 		return h('div', { className: 'agy-console', style: S.container },
 			renderHeader(t, authPhase === 'ok' || accounts.length > 0, auth.addingAccount, loadingAction !== null,
-				loadingAction === 'warmup:all' || status.warmupState?.running === true,
 				loadingAction === 'refresh:all' || (status.quotaRefreshing?.length ?? 0) > 0,
 				{
 					onAdd: () => { selectTab('accounts'); auth.setAddingAccount(true); },
-					onWarmupAll: () => void accountActions.warmupAccount(),
 					onRefreshAll: () => void accountActions.refreshQuota(),
 				},
 			),
@@ -159,9 +157,8 @@ function renderHeader(
 	isAuthed: boolean,
 	addingAccount: boolean,
 	isBusy: boolean,
-	isWarmupAllBusy: boolean,
 	isRefreshAllBusy: boolean,
-	actions: { onAdd: () => void; onWarmupAll: () => void; onRefreshAll: () => void },
+	actions: { onAdd: () => void; onRefreshAll: () => void },
 ): unknown {
 	return h('div', { style: S.headerCard },
 		h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
@@ -175,12 +172,6 @@ function renderHeader(
 				style: { gap: '4px', height: '24px', padding: '2px 8px', fontSize: '11.5px' },
 				onClick: actions.onAdd,
 			}, uiIcon('plus', 12, '#ffffff'), ` ${t('account.add')}`) : null,
-			h(Button, {
-				variant: 'default', size: 'sm', className: 'agy-btn',
-				style: { gap: '4px', height: '24px', padding: '2px 8px', fontSize: '11.5px' },
-				disabled: isBusy || isWarmupAllBusy,
-				onClick: actions.onWarmupAll,
-			}, ...(isWarmupAllBusy ? [Spinner(), t('header.warmingUp')] : [uiIcon('flame', 12, '#f97316'), ` ${t('header.warmup')}`])),
 			h(Button, {
 				variant: 'default', size: 'sm', className: 'agy-btn',
 				style: { gap: '4px', height: '24px', padding: '2px 8px', fontSize: '11.5px' },

@@ -511,7 +511,7 @@ export function writeMcpConfig(file: string, bridge: McpBridge, log?: (message: 
     // Entries written before DSH_MCP_PID existed can never be proven alive, so
     // they were never pruned and piled up (8-9 per account seen in the wild).
     // agy waits for EVERY registered server before sending the turn, so dead
-    // bridges stall each warmup probe until `--print-timeout` with 0 tokens
+    // bridges stall each quota probe until `--print-timeout` with 0 tokens
     // used, and the quota window is never activated. Treat them as stale.
     const legacyWithoutPid = rawPid === undefined
     const deadPid = typeof rawPid === 'string' && /^\d+$/.test(rawPid) && !isPidAlive(Number(rawPid))

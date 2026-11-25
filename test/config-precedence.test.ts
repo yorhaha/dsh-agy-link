@@ -134,14 +134,7 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_QUOTA_VIA_CLI: 'no',
     DSH_AGY_PROXY_URL: 'http://127.0.0.1:1',
     DSH_AGY_SUPPRESS_AUTOUPDATE: 'true',
-    DSH_AGY_AUTO_WARMUP: 'true',
-    DSH_AGY_WARMUP_MODELS: 'm1,m2',
-    DSH_AGY_AUTO_TRANSLATE: 'true',
-    DSH_AGY_TRANSLATE_MODEL: 'tm',
-    DSH_AGY_TRANSLATE_EFFORT: 'low',
-    DSH_AGY_TRANSLATE_LANG: 'English',
     DSH_AGY_SHOW_HEADER_BADGE: 'off',
-    DSH_AGY_SHOW_TRANSLATE_ACTION: 'off',
     DSH_AGY_POOL_WIDE_CATALOG: 'true',
   }, {})
   assert.equal(cfg.permissionMode, 'skip', 'SKIP_PERMISSIONS wins over MODE')
@@ -161,8 +154,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
   assert.equal(cfg.quotaPollIntervalMs, 120000)
   assert.equal(cfg.quotaViaCli, false)
   assert.equal(cfg.suppressAgyAutoUpdate, true)
-  assert.equal(cfg.autoWarmup, true)
-  assert.deepEqual(cfg.warmupModels, ['m1', 'm2'])
   assert.equal(cfg.showHeaderBadge, false)
   assert.equal(cfg.poolWideCatalog, true)
 
@@ -186,10 +177,7 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_QUOTA_POLL_INTERVAL_MS: '1000',
     DSH_AGY_QUOTA_VIA_CLI: 'nope',
     DSH_AGY_SUPPRESS_AUTOUPDATE: 'nope',
-    DSH_AGY_AUTO_WARMUP: 'nope',
-    DSH_AGY_AUTO_TRANSLATE: 'nope',
     DSH_AGY_SHOW_HEADER_BADGE: 'nope',
-    DSH_AGY_SHOW_TRANSLATE_ACTION: 'nope',
     DSH_AGY_POOL_WIDE_CATALOG: 'nope',
   }, {})
   assert.equal(junk.timeoutMs, base.timeoutMs)

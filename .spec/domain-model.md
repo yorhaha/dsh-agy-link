@@ -56,7 +56,6 @@
 | --- | --- | --- |
 | 文本/工具 | `AgyAdapter` | 文件、命令、搜索、浏览器、子代理等由 agy 内部工具执行并镜像为 `agy_tool` 卡片 |
 | 子代理/后台 | `SubagentTracker`、`backgroundWakeup` | transcript tail、看门狗保活 |
-| 预热 | `WarmupService` | 避开冷却/让路账号 |
 | 账号管理 | `/agy ...`、`/plugins/agy-link/*`、账号池面板 | 登录、启停、当前账号、配额同步、清除冷却 |
 
 ## 5. 概念 → UI

@@ -9,7 +9,7 @@ Google Cloud Code / Antigravity 风控网关会联合校验 TLS 指纹（Go `cry
 硬约束：
 
 1. **禁止使用 Node.js 直接调用 `v1internal:streamGenerateContent` / `generateContent` / `loadCodeAssist`**：
-   - `WarmupService` 预热探针**必须 100% 通过官方 `agy` 二进制执行**（`agy -p "hi" --mode plan --output-format stream-json --print-timeout 1m --model <model>`），携带对应账号隔离环境（`buildAgyEnv`）并在 Windows 下受 `acquireCredentialSlot` 保护。
+   - 一切模型调用**必须 100% 通过官方 `agy` 二进制执行**，携带对应账号隔离环境（`buildAgyEnv`）并在 Windows 下受 `acquireCredentialSlot` 保护。
    - 严禁构造 `sessionId: "warmup_..."`、`anthropic-beta` 等第三方/机器人特征头。
 2. **消费级安全端点（剔除企业端 `cloudcode-pa.googleapis.com`）**：
    - 消费级 OAuth 仅使用 `https://daily-cloudcode-pa.googleapis.com`（及同体系 `https://daily-cloudcode-pa.sandbox.googleapis.com` 灾备回退）。企业生产端点 `https://cloudcode-pa.googleapis.com` 对消费级凭据返回 429/403，或在 `daily` 耗尽时错误返回 `1.0`（100%）导致配额跳变与撞墙，**严禁放入消费级轮询列表**。
@@ -50,18 +50,8 @@ Google Cloud Code / Antigravity 风控网关会联合校验 TLS 指纹（Go `cry
 5. **REST 降级采用「按需补充，避免冗余三并发」**：
    - 先请求 `retrieveUserQuotaSummary` 与 `fetchAvailableModels`；仅当 `fetchAvailableModels` 未携带模型级 `quotaInfo` 时才回退请求 `retrieveUserQuota`（保留 issue #48 修正过期 5h 占位符能力的同时，消除稳态下每次轮询多余的第 3 个内部端点请求）。
    - 后台自动轮询通过 `shouldPollAccount` 跳过已禁用、终态封禁以及**全族冷却（`isAccountFullyCooling`）**的账号；单模型族冷却（例如仅 Gemini 处于 429/本地冷却而 Argon/Claude/GPT 仍健康）绝不阻断其余模型族的轮询与调度；账号间保持 `2000~3500ms` 随机抖动间隔（`staggerJitterMs`）。
-   - 预热规划（`planWarmupTargets` / `WarmupService`）按**模型族粒度**判定冷却与激活资格（`isFamilyCooling`）：点击一键预热默认使用 `force: false, ignoreFailureBackoff: true`，只激活已过期且健康的配额窗口，不强探周期中（mid-cycle）窗口、不触碰冷却中的模型族，且整号跳过时不插入账号间休眠延迟。
-   - 预热按**模型族**逐个探测（`account.quotas` 里出现的每个族各一条模型）；`warmupModels` 只决定族内选哪条模型（空数组=全禁），不是白名单。因此「配了 2 条模型」仍可能探 4 个族（google/anthropic/openai/argon）。
    - **`--effort` 由模型决定，不能按族硬塞**：只有 `gemini-*` 探针接受 `--effort`（Claude/GPT 的档位在模型 slug 里）。探针先查 `effort-unsupported` 学习列表跳过，若仍被 CLI 拒绝（`--effort is not supported for model …`）则**去掉 `--effort` 重试一次并回写学习列表**。教训：2026-11-23 实测 claude-sonnet-5-5 每次都因该参数被本地拒绝，anthropic 族周窗口从未被激活，lastRun 恒为 3 失败。
-   - **账号之间 30–120s 随机间隔**（`warmupAccountGapMs()`），不是 1.5–3s：同出口多号在一分钟内连续点亮是最像号池 farm 的形态。族内探针之间仍是 1.5–3s（单号小爆发，贴近正常使用）。
-   - **单轮探针硬上限** `warmupMaxProbesPerRun`（默认 12，`0` = 不限，env `DSH_AGY_WARMUP_MAX_PROBES`）：超限账号本轮以 `Run probe budget exhausted` 记为 skipped 并留到下次；预算用尽后不再插入无意义的账号间等待。
-   - 设置页暴露 `warmupWindows` / `warmupModels` / `warmupMaxProbesPerRun`（此前窗口模式只能改配置文件），实际值与上限都从 `/status` 读回，避免面板和调度器各说一套。
-   - **自动预热（`autoWarmup`，默认关闭）只在配额窗口「可激活」时触发**：调度器每 5 分钟 tick 一次，是否真探由按族判定决定（周窗口 6 天冷却 / 5h 窗口 4 小时冷却 / 失败 30 分钟退避 / 冷却中的族跳过），所以开启后每周每族最多 1 次，5h 模式约每 4 小时 1 次。
-   - **调度与手动互斥**：`runScheduledWarmup()` 在 `isRunning()` 为真时直接返回（账号间隔 30–120s 意味着一次全池 run 会持续数分钟），否则一次手动预热会被下一个 tick 叠上第二轮全池扫描。
-   - **日锚点带确定性抖动**：`warmupDailyTime` 采用分钟级锚点 + `dailyJitterMinutes(dayKey)`（0–20 分钟，同日稳定、跨日不可预测），避免每天同一分钟准点开跑；锚点钳到 23:59，深夜锚点不会跨日丢失。
    - **上游下架立即停车**：CLI 报 `retired / no longer available / unknown model` 时写入 `${identity}:${family}:parked`，该族停车 24 小时再试，而不是按 30 分钟退避无限重试（否则一天 48 次无效探针）；手动 force 仍可越过停车。
-   - **调度锚点必须持久化**：日锚点与间隔锚点写入 `warmup-history.json`（`schedule:daily:<dayKey>` / `schedule:interval`），不再只存在内存里。否则插件重载会让间隔模式立刻"到期"、日锚点当天再判一次——按族冷却只是把探针挡住，白跑一轮全池扫描。多宿主共享 state 目录时也靠它去重。
-   - **间隔下限 3 小时**（`MIN_WARMUP_INTERVAL_HOURS`，`0` = 关闭）：一次全池 run 按 30–120s 账号间隔要跑几分钟，1–2 小时的间隔会在上一轮没跑完时重新武装。`common/config.ts` 的 `clampWarmupIntervalHours()` 与配置路由校验共用同一常量。
 
 ## 逐模型读数落哪个窗口：只看 reset 距离，不看族名（2026-11-24）
 
@@ -93,8 +83,8 @@ Google Cloud Code PA 使用 Proto3 JSON 序列化：当配额耗尽（`remaining
 
 ## 4. 跨账号 IP/凭据防串味与封号风暴熔断（Sweep Protection）
 
-1. **Windows 凭据槽隔离全覆盖（`agy models`、`WarmupService` 与 `agy_ask`）**：
-   - Windows 下 `agy.exe` 始终读取全局 `gemini:antigravity` 凭据槽。对隔离辅账号执行 `agy models`、`WarmupService` CLI 探针或 `agy_ask`（`runAgyOnce`）前**必须持有 `acquireCredentialSlot`**；若槽被长任务占用则跳过后台发现，**绝不允许在未切换凭据槽的情况下注入辅账号 `HTTPS_PROXY`**（否则会导致主账号同一 Token 在数秒内横跨多个代理 IP 出口，触发异地重放风控）。
+1. **Windows 凭据槽隔离全覆盖（`agy models` 与 `agy_ask`）**：
+   - Windows 下 `agy.exe` 始终读取全局 `gemini:antigravity` 凭据槽。对隔离辅账号执行 `agy models` 或 `agy_ask`（`runAgyOnce`）前**必须持有 `acquireCredentialSlot`**；若槽被长任务占用则跳过后台发现，**绝不允许在未切换凭据槽的情况下注入辅账号 `HTTPS_PROXY`**（否则会导致主账号同一 Token 在数秒内横跨多个代理 IP 出口，触发异地重放风控）。
 2. **配额节奏智能调度（Quota Pacing & Surplus Tie-Breaking）**：
    - 保持 `LOW_QUOTA_5H = 0.10` 与 `LOW_QUOTA_WEEKLY = 0.05` 主动轮换红线不变，Argon 共享池完整继承 `google` 桶的 `nextQuotaResetAt`、`orderByExpiry` 与主动切号判断。
    - `orderByExpiry()` 对处于 `QUOTA_WINDOW_MATCH_TOLERANCE_MS`（5 分钟）内的同周期重置时间视为同一批次，在同批次内优先选择**零异常计数（`authStrikes=0` 且无连续失败）且配额时间盈余比（`remainingFraction - timeRemainingFraction`）更高**的账号，避免被秒级重置时间戳抖动误导去消耗濒临见底的账号。
@@ -107,9 +97,6 @@ Google Cloud Code PA 使用 Proto3 JSON 序列化：当配额耗尽（`remaining
 ## 5. 验证锚点
 
 - `test/quota.test.ts` / `test/domain-quota.test.ts`：CLI `/usage` 主账号放行、REST 按需降级、Proto3 零值省略解析为 `0%`、消费级单一端点。
-- `test/warmup.test.ts`：CLI 探针执行（零 `undici` 推理请求、零 `anthropic-beta` 伪造头）、`TOS_VIOLATION` 终态隔离与 `appeal_url` 保留、非终态错误不误标 `authRequired`。
-- `test/warmup-effort-throttle.test.ts`：claude/gpt 探针不带 `--effort`、学习列表前置生效、被拒后去 effort 重试一次并回写、账号间隔 30–120s、单轮探针上限与 `0` 关闭语义。
-- `test/warmup-auto-schedule.test.ts`：调度 tick 不与运行中的预热叠加、日锚点抖动 0–20 分钟且同日稳定、上游下架模型停车 24 小时（force 可越权）、锚点跨重载持久化、间隔下限 3h。
 - `test/failure-classifier.test.ts` / `test/rate-limit-classify.test.ts`：CLI 文本 `TOS_VIOLATION` 识别与停止跨号连坐重试。
 - `test/quota-availability.test.ts`：端点健康 TTL 与置后不丢弃、403 license 分类为 `no_license`、`quotaUnavailable` 写入/清除、`no_license` 后台摘要短路与手动强制探测、同出口有界并发 + 起点抖动、`refreshingAccounts()` 进度暴露。
 - `test/http-contract.test.ts`：`/pool/refresh-quota` 的 `alreadyRunning` 重复点击回报、`/status` 的 `quotaRefreshing` 透出。

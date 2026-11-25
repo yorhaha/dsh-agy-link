@@ -24,7 +24,7 @@ function selectableModels(
 }
 
 function handleStatus(services: HostServices, req: unknown, res: unknown): void {
-  const { getConfig, bin, store, pool, quota, warmup, catalog, auth, poolAuth, adapter, acpPool, backgroundWakeup, lastRun } = services
+  const { getConfig, bin, store, pool, quota, catalog, auth, poolAuth, adapter, acpPool, backgroundWakeup, lastRun } = services
   const { version: versionCache, dormantReason } = services.status
       runRoute(res, async () => {
         const cfg = getConfig()
@@ -99,7 +99,6 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
           // its own click, which cleared the moment the route answered — so a
           // ~55s serial cascade showed no progress at all.
           quotaRefreshing: typeof quota?.refreshingAccounts === 'function' ? quota.refreshingAccounts() : [],
-          warmupState: typeof warmup?.status === 'function' ? warmup.status() : null,
           // Live agy-internal subagents per session (header badge). Empty when idle.
           subagents: snapshotSubagents(),
           catalog: { source: activeCat.source, count: catalogCount, lastError: activeCat.lastError ?? cat.lastError ?? null },
@@ -108,10 +107,6 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
           accountModels,
           hiddenModels: cfg.hiddenModels,
           selectedModels: cfg.selectedModels,
-          autoWarmup: cfg.autoWarmup,
-          warmupModels: cfg.warmupModels,
-          warmupWindows: cfg.warmupWindows,
-          warmupMaxProbesPerRun: cfg.warmupMaxProbesPerRun,
           showHeaderBadge: cfg.showHeaderBadge,
           poolWideCatalog: cfg.poolWideCatalog,
           bindings: Object.keys(store.all()).length,

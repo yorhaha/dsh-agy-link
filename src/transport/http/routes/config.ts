@@ -1,11 +1,9 @@
 import { isEffortId } from '../../../common/reasoning.ts'
-import { MIN_WARMUP_INTERVAL_HOURS } from '../../../common/timeouts.ts'
 import type { HostServices } from '../../../host/services.ts'
 import { runRoute, sendJson, readBody, methodOf, type RawRes, type RouteRegistrar } from '../respond.ts'
 
 const PERMISSION_MODES = new Set(['skip', 'auto', 'plan', 'accept-edits'])
 const TRANSPORTS = new Set(['cli', 'acp'])
-const WARMUP_WINDOWS = new Set(['weekly', '5h', 'both'])
 
 function validateConfigValue(key: string, value: unknown): string | null {
   if (key === 'hiddenModels') {
@@ -19,11 +17,6 @@ function validateConfigValue(key: string, value: unknown): string | null {
       ? null
       : 'selectedModels must be an array of model ids'
   }
-  if (key === 'warmupModels') {
-    return Array.isArray(value) && value.every((x) => typeof x === 'string')
-      ? null
-      : 'warmupModels must be an array of model names'
-  }
   if (key === 'permissionMode') {
     return typeof value === 'string' && PERMISSION_MODES.has(value)
       ? null
@@ -36,33 +29,6 @@ function validateConfigValue(key: string, value: unknown): string | null {
   }
   if (key === 'sandbox' || key === 'backgroundWakeup' || key === 'mcpBridge' || key === 'cloakSystemPrompt' || key === 'respectExternalSignIn' || key === 'auxNeutralWorkspace') {
     return typeof value === 'boolean' ? null : `${key} must be a boolean`
-  }
-  if (key === 'warmupWindows') {
-    return typeof value === 'string' && WARMUP_WINDOWS.has(value)
-      ? null
-      : 'warmupWindows must be weekly, 5h, or both'
-  }
-  if (key === 'warmupDailyTime') {
-    return typeof value === 'string' && (value === '' || /^\d{1,2}:\d{2}$/.test(value.trim()))
-      ? null
-      : 'warmupDailyTime must be HH:MM or empty'
-  }
-  if (key === 'warmupTimezone') {
-    return typeof value === 'string' ? null : 'warmupTimezone must be an IANA timezone string'
-  }
-  if (key === 'warmupIntervalHours') {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 168) {
-      return 'warmupIntervalHours must be a number between 0 and 168'
-    }
-    if (value > 0 && value < MIN_WARMUP_INTERVAL_HOURS) {
-      return `warmupIntervalHours must be 0 (off) or at least ${MIN_WARMUP_INTERVAL_HOURS}`
-    }
-    return null
-  }
-  if (key === 'warmupMaxProbesPerRun') {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 200
-      ? null
-      : 'warmupMaxProbesPerRun must be a number between 0 and 200 (0 = unlimited)'
   }
   if (key === 'agent' || key === 'orchestratorPlannerModel' || key === 'orchestratorExecutorModel') {
     return typeof value === 'string' ? null : `${key} must be a string`
@@ -113,7 +79,6 @@ function handleConfig(services: HostServices, req: unknown, res: unknown): void 
           'defaultModel', 'defaultEffort',
           'orchestratorPlannerModel', 'orchestratorPlannerEffort', 'orchestratorExecutorModel', 'orchestratorExecutorEffort',
           'askTool', 'workspaceRoot', 'hiddenModels',
-          'autoWarmup', 'warmupModels', 'warmupWindows', 'warmupDailyTime', 'warmupTimezone', 'warmupIntervalHours', 'warmupMaxProbesPerRun',
           'showHeaderBadge', 'poolWideCatalog', 'selectedModels',
           'quotaPollIntervalMs',
         ]

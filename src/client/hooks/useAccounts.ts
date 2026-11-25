@@ -30,7 +30,6 @@ export interface AccountActions {
 	removeAccount: (id: string, alias: string) => Promise<void>;
 	toggleAccountEnabled: (acc: ManagedAccount) => Promise<void>;
 	refreshQuota: (id?: string) => Promise<void>;
-	warmupAccount: (id?: string) => Promise<void>;
 	saveProxy: (id: string) => Promise<void>;
 	saveAlias: (id: string) => Promise<void>;
 	clearCooldown: (id?: string, family?: QuotaFamily) => Promise<void>;
@@ -171,7 +170,7 @@ function lifecycleActions(
 function quotaActions(
 	deps: AccountsDeps,
 	actionFailed: () => void,
-): Pick<AccountActions, 'refreshQuota' | 'warmupAccount' | 'saveProxy' | 'clearCooldown'> {
+): Pick<AccountActions, 'refreshQuota' | 'saveProxy' | 'clearCooldown'> {
 	const { refresh, showToast, setLoadingAction, t, proxyInputs, setEditingProxyId } = deps;
 
 
@@ -196,43 +195,6 @@ function quotaActions(
 			// used to be a lie (and the old blocking request left the spinner
 			// spinning for the whole network cascade).
 			showToast(res?.pending === true ? t('quota.refreshStarted') : t('quota.refreshed'), res?.pending === true ? 'info' : 'success');
-		} finally {
-			setLoadingAction(null);
-		}
-	};
-
-	const warmupAccount = async (id?: string): Promise<void> => {
-		setLoadingAction(id ? `warmup:${id}` : 'warmup:all');
-		try {
-			const res = await postPool('warmup', {
-				...(id ? { id } : { all: true }),
-				force: false,
-				ignoreFailureBackoff: true,
-			});
-			if (res === null || res?.ok === false) {
-				actionFailed();
-				return;
-			}
-			await refresh();
-			if (res?.alreadyRunning === true) {
-				showToast(t('warmup.alreadyRunning'), 'info');
-				return;
-			}
-			if (res?.pending === true) {
-				showToast(t('warmup.started'), 'info');
-				return;
-			}
-			const results: any[] = Array.isArray(res.results) ? res.results : [];
-			const skippedCount = results.filter((r) => r.skipped).length;
-			const successCount = results.filter((r) => r.success && !r.skipped).length;
-			const failedCount = results.length - skippedCount - successCount;
-			if (successCount > 0) {
-				showToast(id ? t('warmup.success') : t('warmup.allSuccess'), 'success');
-			} else if (skippedCount > 0 && failedCount === 0) {
-				showToast(t('warmup.skipped'), 'info');
-			} else {
-				actionFailed();
-			}
 		} finally {
 			setLoadingAction(null);
 		}
@@ -269,5 +231,5 @@ function quotaActions(
 		showToast(t('account.clearCooldownDone'), 'success');
 	};
 
-	return { refreshQuota, warmupAccount, saveProxy, clearCooldown };
+	return { refreshQuota, saveProxy, clearCooldown };
 }

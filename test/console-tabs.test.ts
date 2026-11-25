@@ -55,7 +55,6 @@ function baseStatus(): StatusPayload {
 		],
 		accountModels: {},
 		quotaRefreshing: [],
-		warmupState: null,
 		hiddenModels: [],
 		selectedModels: [],
 		acpStatus: { activeProcesses: 1, sessions: 1, keys: [] },
@@ -96,7 +95,6 @@ function baseTabProps(tab: ConsoleTabId, dict: Record<string, string> = zh): Con
 			removeAccount: async () => {},
 			toggleAccountEnabled: async () => {},
 			refreshQuota: async () => {},
-			warmupAccount: async () => {},
 			saveProxy: async () => {},
 			saveAlias: async () => {},
 			clearCooldown: async () => {},
@@ -109,12 +107,11 @@ function baseTabProps(tab: ConsoleTabId, dict: Record<string, string> = zh): Con
 }
 
 test('console tabs separate accounts, models/orchestrator, features, and runtime cleanly', () => {
-	// 1. Accounts tab: shows account pool + schedule/warmup card, keeps other tabs out
+	// 1. Accounts tab: shows account pool + schedule card, keeps other tabs out
 	const accountsHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('accounts'))))
 	assert.ok(accountsHtml.includes('role="tablist"'))
 	assert.ok(accountsHtml.includes('账号池 (1)'))
 	assert.ok(accountsHtml.includes(zh['section.poolSchedule']))
-	assert.ok(accountsHtml.includes(zh['config.warmupWindows']))
 	assert.equal(accountsHtml.includes(zh['config.orchestratorPlanner']), false)
 	assert.equal(accountsHtml.includes(zh['config.permissionMode']), false)
 
@@ -139,7 +136,7 @@ test('console tabs separate accounts, models/orchestrator, features, and runtime
 	// 5. All 4 locales define every new tab & section key
 	const keys = [
 		'tab.accounts', 'tab.models', 'tab.features', 'tab.runtime',
-		'section.poolSchedule', 'section.warmupSettings', 'section.modelCatalog',
+		'section.poolSchedule', 'section.modelCatalog',
 		'section.thinkingOrchestrator',
 		'section.uiDisplay', 'section.execution',
 	] as const

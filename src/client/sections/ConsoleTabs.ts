@@ -22,8 +22,6 @@ import { ModelsPanel } from './ModelsPanel.ts';
 import { renderOrchestratorRows } from './OrchestratorSettingsRows.ts';
 import { RuntimeControlsSection } from './RuntimeControlsRows.ts';
 import { renderHeaderBadgeRow } from './VisibilityRows.ts';
-import { warmupConfigRows } from './WarmupConfigRows.ts';
-import { WarmupStatusBar } from './WarmupStatusBar.ts';
 
 export type ConsoleTabId = 'accounts' | 'models' | 'features' | 'runtime';
 
@@ -128,12 +126,10 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 		h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px', gap: '8px', flexWrap: 'wrap' } },
 			h('span', { style: { fontWeight: 700, fontSize: '12.5px', color: 'var(--agy-text-primary)' } },
 				t('account.poolHeading', { count: accounts.length })),
-			h(WarmupStatusBar, { t, warmupState: status.warmupState ?? null, accounts }),
 		),
 		h(AccountsPanel, {
 			t, pool, accounts, accountModels: p.accountModels, loadingAction,
 			quotaRefreshing: status.quotaRefreshing ?? [],
-			warmupState: status.warmupState ?? null,
 			proxyInputs: p.proxyInputs, setProxyInputs: p.setProxyInputs,
 			editingProxyId: p.editingProxyId, setEditingProxyId: p.setEditingProxyId,
 			aliasInputs: p.aliasInputs, setAliasInputs: p.setAliasInputs,
@@ -157,23 +153,6 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 					}, t('pool.roundRobin')),
 				]),
 			}),
-			h(Row, {
-				key: 'auto-warmup',
-				left: rowCaption(t('config.autoWarmup'), t('config.autoWarmupDesc')),
-				right: segGroup([
-					h(Button, {
-						variant: status.autoWarmup === true ? 'segActive' : 'seg',
-						disabled: loadingAction === 'config:autoWarmup',
-						onClick: () => void setCfg('autoWarmup', true),
-					}, t('config.on')),
-					h(Button, {
-						variant: status.autoWarmup !== true ? 'segActive' : 'seg',
-						disabled: loadingAction === 'config:autoWarmup',
-						onClick: () => void setCfg('autoWarmup', false),
-					}, t('config.off')),
-				]),
-			}),
-			...warmupConfigRows({ t, status, loadingAction, setCfg }),
 		]),
 	);
 }

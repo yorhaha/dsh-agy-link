@@ -516,7 +516,6 @@ test('HTTP /config validation, /status exposure, and /agy status output cover or
     store: { all: () => ({}), clear: () => undefined },
     pool: { getPoolData: () => ({ accounts: [], resolvedActiveAccountIds: {} }), getAccounts: () => [], getAccount: () => undefined, setAccountEnabled: () => false },
     quota: {},
-    warmup: {},
     catalog: { get: () => ({ source: 'fallback', models: [], lastError: null }), getAllKnownModels: () => [] },
     auth: { status: () => ({ phase: 'idle' }) },
     poolAuth: { status: () => ({ phase: 'idle' }) },

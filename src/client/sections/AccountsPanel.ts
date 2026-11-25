@@ -21,7 +21,6 @@ import {
 	type QuotaFamily,
 } from '../../common/quota-bench.ts';
 import { effortLabel } from '../../common/reasoning.ts';
-import type { WarmupStatusSnapshot } from '../../common/warmup-types.ts';
 import type { CatalogModelView } from '../status.ts';
 import { h } from '../react.ts';
 import { S } from '../styles.ts';
@@ -39,7 +38,6 @@ export interface AccountsPanelHandlers {
 	removeAccount: (id: string, alias: string) => Promise<void>;
 	toggleAccountEnabled: (acc: ManagedAccount) => Promise<void>;
 	refreshQuota: (id?: string) => Promise<void>;
-	warmupAccount: (id?: string) => Promise<void>;
 	saveProxy: (id: string) => Promise<void>;
 	saveAlias: (id: string) => Promise<void>;
 	clearCooldown: (id?: string, family?: QuotaFamily) => Promise<void>;
@@ -53,8 +51,6 @@ export interface AccountsPanelProps {
 	loadingAction: string | null;
 	/** Account ids the HOST reports as refreshing right now (survives modal close/reopen). */
 	quotaRefreshing?: readonly string[];
-	/** Live + last-run warmup status from the host. */
-	warmupState?: WarmupStatusSnapshot | null;
 	proxyInputs: Record<string, string>;
 	setProxyInputs: (next: Record<string, string>) => void;
 	editingProxyId: string | null;
@@ -72,7 +68,7 @@ export interface AccountsPanelProps {
 
 export function AccountsPanel(props: AccountsPanelProps): unknown {
 	const {
-		t, pool, accounts, accountModels, loadingAction, quotaRefreshing = [], warmupState,
+		t, pool, accounts, accountModels, loadingAction, quotaRefreshing = [],
 		proxyInputs, setProxyInputs, editingProxyId, setEditingProxyId, aliasInputs, setAliasInputs,
 		editingAliasId, setEditingAliasId, expandedModels, toggleExpand,
 		optimisticActiveId, optimisticActiveByFamily, handlers,
@@ -91,7 +87,6 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 		const isAuthRequired = authState !== 'healthy';
 		const isFullyCooling = isAccountFullyCooling(acc, now);
 		const isSyncing = loadingAction === `refresh:${acc.id}` || loadingAction === 'refresh:all' || quotaRefreshing.includes(acc.id);
-		const isWarming = loadingAction === `warmup:${acc.id}` || (warmupState?.running === true && warmupState.activeAccountIds.includes(acc.id));
 		// A real pin is "in use" (blue); a mere eligibility RESOLUTION is a
 		// prediction with a quieter accent. Only always-visible families count.
 		const frameFamilies = QUOTA_FAMILIES.filter((fam) =>
@@ -153,7 +148,7 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 			style: cardStyle,
 		},
 			renderCardHeader(t, acc, {
-				isPrimary, isAuthRequired, authState, dotColor, isEditingProxy, isSyncing, isWarming, isEditingAlias,
+				isPrimary, isAuthRequired, authState, dotColor, isEditingProxy, isSyncing, isEditingAlias,
 				displayAlias, accountModelIds: accountModels?.[acc.id]?.map((m) => m.id), accIndex, accounts, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId, setEditingAliasId,
 			}),
 			h('div', { key: 'agy-body', style: S.quotaBox },
@@ -202,7 +197,6 @@ interface CardHeaderCtx {
 	isEditingProxy: boolean;
 	isEditingAlias: boolean;
 	isSyncing: boolean;
-	isWarming: boolean;
 	displayAlias: string;
 	accountModelIds?: readonly string[];
 	accIndex: number;
@@ -417,7 +411,7 @@ function renderMetaRow(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx): 
 
 function renderCardHeader(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx): unknown {
 	const {
-		isEditingProxy, isAuthRequired, isSyncing, isWarming, displayAlias, accounts, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
+		isEditingProxy, isAuthRequired, isSyncing, displayAlias, accounts, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
 	} = ctx;
 	return h('div', {
 		className: 'agy-card-header',
@@ -441,7 +435,7 @@ function renderCardHeader(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx
 		},
 			renderHeaderBadges(t, acc, ctx),
 			renderActionButtons(t, acc, {
-				isEditingProxy, isAuthRequired, isSyncing, isWarming, displayAlias,
+				isEditingProxy, isAuthRequired, isSyncing, displayAlias,
 				showRemove: accounts.length > 1, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
 			}),
 		),
@@ -453,7 +447,6 @@ function renderActionButtons(t: Translator, acc: ManagedAccount, ctx: {
 	isEditingProxy: boolean;
 	isAuthRequired: boolean;
 	isSyncing: boolean;
-	isWarming: boolean;
 	displayAlias: string;
 	showRemove: boolean;
 	pool: AccountPoolData | undefined;
@@ -462,7 +455,7 @@ function renderActionButtons(t: Translator, acc: ManagedAccount, ctx: {
 	handlers: AccountsPanelHandlers;
 	setEditingProxyId: (id: string | null) => void;
 }): unknown {
-	const { isEditingProxy, isAuthRequired, isSyncing, isWarming, displayAlias, showRemove, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId } = ctx;
+	const { isEditingProxy, isAuthRequired, isSyncing, displayAlias, showRemove, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId } = ctx;
 	const effectiveProxy = acc.proxyUrl || pool?.systemProxy;
 	return h('div', {
 		className: 'agy-card-actions',
@@ -494,13 +487,6 @@ function renderActionButtons(t: Translator, acc: ManagedAccount, ctx: {
 			disabled: accountActionBusy(acc, 'reauth'),
 			onClick: () => void handlers.beginReauth!(acc),
 		}, ...(loadingAction === `reauth:${acc.id}` ? [Spinner(), t('account.reauthing')] : [uiIcon('externalLink', 10, isAuthRequired ? '#ffffff' : 'var(--agy-text-secondary)'), ` ${t('account.reauth')}`])) : null,
-		acc.enabled && !isAuthRequired ? h(Button, {
-			variant: 'default', size: 'sm', className: 'agy-btn',
-			style: { gap: '3px', fontSize: '11px', padding: '1px 6px', height: '22px', justifyContent: 'center' },
-			title: t('account.warmupTitle'),
-			disabled: isWarming,
-			onClick: () => void handlers.warmupAccount(acc.id),
-		}, ...(isWarming ? [Spinner(), t('account.warmingUp')] : [uiIcon('flame', 10, '#f97316'), ` ${t('account.warmup')}`])) : null,
 		h(Button, {
 			variant: isEditingProxy ? 'primary' : 'default', size: 'sm', className: 'agy-btn',
 			style: { gap: '3px', fontSize: '11px', padding: '1px 6px', height: '22px' },

@@ -54,7 +54,6 @@ const EXPECTED_ROUTES: ReadonlyArray<readonly [kind: string, path: string]> = [
   ['exact', '/plugins/agy-link/pool/primary'],
   ['exact', '/plugins/agy-link/pool/mode'],
   ['exact', '/plugins/agy-link/pool/refresh-quota'],
-  ['exact', '/plugins/agy-link/pool/warmup'],
   ['exact', '/plugins/agy-link/pool/clear-cooldown'],
   ['exact', '/plugins/agy-link/pool/set-active'],
   ['exact', '/plugins/agy-link/pool/reorder'],
@@ -88,7 +87,6 @@ const POST_ONLY_ROUTES = [
   '/plugins/agy-link/pool/primary',
   '/plugins/agy-link/pool/mode',
   '/plugins/agy-link/pool/refresh-quota',
-  '/plugins/agy-link/pool/warmup',
   '/plugins/agy-link/pool/clear-cooldown',
   '/plugins/agy-link/pool/set-active',
   '/plugins/agy-link/pool/reorder',
@@ -136,8 +134,6 @@ const BASE_CONFIG: Record<string, unknown> = {
   askTool: false,
   hiddenModels: [] as string[],
   selectedModels: [] as string[],
-  autoWarmup: false,
-  warmupModels: [] as string[],
   showHeaderBadge: true,
   poolWideCatalog: false,
   proxyUrl: '',
@@ -172,7 +168,6 @@ function fakeServices(overrides: Overrides = {}, config: ConfigOverrides = {}): 
       setAccountEnabled: () => false,
     },
     quota: {},
-    warmup: {},
     catalog: {
       get: () => ({ source: 'fallback', models: [], lastError: null }),
       getAllKnownModels: () => [],
@@ -385,7 +380,6 @@ test('/status answers 200 with the client-visible shape', async () => {
   // Field names the client half depends on (frozen contract).
   for (const key of [
     'permissionMode', 'workspaceRoot', 'defaultModel', 'defaultEffort', 'askTool', 'auth', 'poolAuth',
-    'autoWarmup', 'warmupModels',
     'showHeaderBadge', 'poolWideCatalog',
   ]) {
     assert.ok(key in body, 'status must keep field ' + key)
@@ -615,11 +609,6 @@ test('/config is POST-only and validates keys before writing', async () => {
   assert.deepEqual(badSelected.json(), { error: 'selectedModels must be an array of model ids' })
   assert.equal(writes.length, 0)
 
-  const badWarmup = await invoke(route, fakeReq('POST', '/', { key: 'warmupModels', value: ['ok', 1] }))
-  assert.equal(badWarmup.status(), 400)
-  assert.deepEqual(badWarmup.json(), { error: 'warmupModels must be an array of model names' })
-  assert.equal(writes.length, 0)
-
   const ok = await invoke(route, fakeReq('POST', '/', { key: 'defaultEffort', value: 'high' }))
   assert.equal(ok.status(), 200)
   assert.deepEqual(ok.json(), { ok: true, key: 'defaultEffort', value: 'high' })
@@ -630,10 +619,6 @@ test('/config is POST-only and validates keys before writing', async () => {
   const hidden = await invoke(route, fakeReq('POST', '/', { key: 'hiddenModels', value: ['gemini-3.7-flash'] }))
   assert.equal(hidden.status(), 200)
   assert.equal(pickerEvents, 1, 'hiddenModels writes must announce the picker update')
-
-  const warmup = await invoke(route, fakeReq('POST', '/', { key: 'warmupModels', value: ['gemini-3-flash'] }))
-  assert.equal(warmup.status(), 200)
-  assert.equal(pickerEvents, 1, 'warmupModels writes must not announce the picker update')
 
   // issue #105: both visibility switches are settable through the same guarded
   // endpoint; neither is a picker event.
@@ -1035,23 +1020,6 @@ test('/status forwards the account ids the host is refreshing right now', async 
   assert.deepEqual((second.json() as Record<string, unknown>).quotaRefreshing, [])
 })
 
-test('/status exposes warmup.status() snapshot as warmupState', async () => {
-  const snapshot = {
-    running: true,
-    scope: 'all',
-    startedAt: 1000,
-    total: 2,
-    completed: 1,
-    activeAccountIds: ['a2'],
-    currentAccountId: 'a2',
-    lastRun: null,
-  }
-  const webServer = fakeWebServer()
-  registerRoutes(webServer, fakeServices({ warmup: { status: () => snapshot } }))
-  const captured = await invoke(routeFor(webServer.routes, '/plugins/agy-link/status'), fakeReq('GET'))
-  assert.deepEqual((captured.json() as Record<string, unknown>).warmupState, snapshot)
-})
-
 test('/pool/refresh-quota decouples slow catalog.warmAccounts from quotaRefreshInFlight', async () => {
   let releaseWarm: (() => void) | null = null
   const warmGate = new Promise<void>((resolve) => {
@@ -1090,111 +1058,6 @@ test('/pool/refresh-quota decouples slow catalog.warmAccounts from quotaRefreshI
   assert.equal(refreshCalls, 2)
   assert.equal(warmCalls, 1, 'warmAccounts still deduplicates its own background run via catalogWarmInFlight')
   releaseWarm!()
-  await new Promise((resolve) => setImmediate(resolve))
-})
-
-test('/pool/warmup is strict about JSON, deduplicates in-flight runs, and returns non-blocking pending status', async () => {
-  const warmupCalls: unknown[][] = []
-  const refreshedAccounts: unknown[] = []
-  const knownAcc = { id: 'known', enabled: true }
-  const pool = poolDouble({ getAccount: (id: unknown) => (id === 'known' ? knownAcc : undefined) })
-  const s = setup({
-    pool: pool.pool,
-    warmup: {
-      warmupAccount: async (...args: unknown[]) => {
-        warmupCalls.push(['account', ...args])
-        return [{ accountId: 'known', alias: 'known', model: 'm', success: true, durationMs: 1 }]
-      },
-      warmupAllAccounts: async (...args: unknown[]) => {
-        warmupCalls.push(['all', ...args])
-        return [{ accountId: 'known', alias: 'known', model: 'm', success: true, durationMs: 1 }]
-      },
-    },
-    quota: {
-      refreshAccountQuota: async (acc: unknown) => { refreshedAccounts.push(acc) },
-      refreshAllQuotas: async () => undefined,
-    },
-  })
-
-  const malformed = await invoke(s.route('/plugins/agy-link/pool/warmup'), rawReq('POST', '/', [Buffer.from('{oops')]))
-  assert.equal(malformed.status(), 400)
-  assert.deepEqual(malformed.json(), { error: 'invalid JSON body' })
-
-  const oversized = await invoke(s.route('/plugins/agy-link/pool/warmup'), oversizedReq('POST'))
-  assert.equal(oversized.status(), 400)
-  assert.deepEqual(oversized.json(), { error: 'invalid JSON body' })
-
-  const badModel = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true, model: 'bad model!' }))
-  assert.equal(badModel.status(), 400)
-  assert.deepEqual(badModel.json(), { error: 'invalid model' })
-
-  const badModelType = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true, model: 7 }))
-  assert.equal(badModelType.status(), 400)
-  assert.deepEqual(badModelType.json(), { error: 'invalid model' })
-
-  const missingSelector = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', {}))
-  assert.equal(missingSelector.status(), 400)
-  assert.deepEqual(missingSelector.json(), { error: 'id or { all: true } required' })
-  assert.equal(warmupCalls.length, 0)
-
-  const unknownAccount = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { id: 'ghost' }))
-  assert.equal(unknownAccount.status(), 404)
-  assert.deepEqual(unknownAccount.json(), { error: 'Account not found' })
-
-  const one = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { id: 'known', force: true, model: 'gemini-3-flash', ignoreFailureBackoff: true }))
-  assert.equal(one.status(), 200)
-  assert.deepEqual(one.json(), { ok: true, pending: true, alreadyRunning: false, warmupState: null, pool: POOL_DATA })
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setImmediate(resolve))
-  assert.deepEqual(warmupCalls[0], ['account', knownAcc, { force: true, model: 'gemini-3-flash', ignoreFailureBackoff: true }])
-  assert.equal(refreshedAccounts.length, 1)
-
-  const all = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true }))
-  assert.equal(all.status(), 200)
-  assert.deepEqual(all.json(), { ok: true, pending: true, alreadyRunning: false, warmupState: null, pool: POOL_DATA })
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setImmediate(resolve))
-  assert.deepEqual(warmupCalls[1], ['all', { force: false }])
-})
-
-test('/pool/warmup deduplicates overlapping triggers and isolates background failures', async () => {
-  let release: (() => void) | null = null
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  let calls = 0
-  let shouldThrow = false
-  const s = setup({
-    warmup: {
-      warmupAllAccounts: async () => {
-        calls++
-        await gate
-        if (shouldThrow) throw new Error('warmup exploded')
-        return []
-      },
-    },
-  })
-
-  const first = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true }))
-  assert.equal(first.status(), 200)
-  assert.equal((first.json() as Record<string, unknown>).pending, true)
-  assert.equal((first.json() as Record<string, unknown>).alreadyRunning, false)
-
-  const second = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true }))
-  assert.equal(second.status(), 200)
-  assert.equal((second.json() as Record<string, unknown>).alreadyRunning, true)
-  assert.equal(calls, 1, 'overlapping /pool/warmup must reuse inflight run')
-
-  shouldThrow = true
-  release!()
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setImmediate(resolve))
-
-  // Background error is caught cleanly and releases the dedupe slot for a retry.
-  shouldThrow = false
-  const retry = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { all: true }))
-  assert.equal(retry.status(), 200)
-  assert.equal((retry.json() as Record<string, unknown>).alreadyRunning, false)
   await new Promise((resolve) => setImmediate(resolve))
 })
 
@@ -1545,43 +1408,6 @@ test('REGRESSION: quota dedupe outlives the old 30s race while its work still ru
     assert.equal(started, 2, 'a genuinely wedged refresh can be retried after the hard cap')
   } finally {
     mock.timers.reset()
-  }
-})
-
-test('issue #114: TOS quarantine survives the forced quota refresh in the same warmup request', async () => {
-  // v0.6.26 marked the account authRequired on a terminal 403, but
-  // handlePoolWarmup then unconditionally ran refreshAccountQuota(acc, true),
-  // whose success cleared the flag again — all inside ONE HTTP request.
-  const dir = mkdtempSync(join(tmpdir(), 'agy-tos-route-'))
-  try {
-    const realPool = new AccountPoolManager(dir)
-    const acc = realPool.getAccounts()[0]!
-    const tos = 'HTTP 403: TOS_VIOLATION service disabled. Appeal: https://forms.gle/x'
-    const s = setup({
-      pool: realPool,
-      warmup: {
-        warmupAccount: async () => {
-          realPool.markAuthRequired(acc.id, tos)
-          return [
-            { accountId: acc.id, alias: acc.alias, model: 'gemini-4-argon', success: true, durationMs: 1 },
-            { accountId: acc.id, alias: acc.alias, model: 'gemini-3.8-flash', success: false, status: 403, error: tos, durationMs: 1 },
-          ]
-        },
-      },
-      quota: {
-        // Emulate the real pipeline: a successful OAuth/usage refresh calls
-        // clearAuthRequired. It MUST NOT lift a terminal ban.
-        refreshAccountQuota: async () => { realPool.clearAuthRequired(acc.id) },
-      },
-    })
-    const res = await invoke(s.route('/plugins/agy-link/pool/warmup'), fakeReq('POST', '/', { id: acc.id, force: true }))
-    assert.equal(res.status(), 200)
-    await new Promise((resolve) => setImmediate(resolve))
-    await new Promise((resolve) => setImmediate(resolve))
-    assert.equal(realPool.getAccount(acc.id)?.authRequired, true, 'quarantine must still be set after background warmup + quota refresh')
-    assert.equal(realPool.getAccount(acc.id)?.authError, tos)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
   }
 })
 

@@ -2,24 +2,12 @@
 // entry config > defaults (spec ADR-13). The overrides file backs /agy
 // hot changes and survives restarts; the env is read per call so a changed
 // process environment is honored without reload.
-import { defaultConfig, type AgyTransportMode, type PermissionMode, type PluginConfig,  type WarmupWindowMode } from './types.ts'
-import { MIN_WARMUP_INTERVAL_HOURS } from './timeouts.ts'
+import { defaultConfig, type AgyTransportMode, type PermissionMode, type PluginConfig } from './types.ts'
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export interface OverridesFile { [key: string]: unknown }
-
-/**
- * Clamp the scheduled-warmup interval. `0` disables it; anything else is at
- * least MIN_WARMUP_INTERVAL_HOURS (a pool sweep now spans minutes, so a 1–2h
- * interval would re-arm before the previous run drains).
- */
-export function clampWarmupIntervalHours(hours: number): number {
-  const floored = Math.floor(hours)
-  if (!Number.isFinite(floored) || floored <= 0) return 0
-  return Math.min(168, Math.max(MIN_WARMUP_INTERVAL_HOURS, floored))
-}
 
 export function dshHome(): string {
   return process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -103,12 +91,6 @@ function asTransport(v: unknown): AgyTransportMode | undefined {
   return s === 'cli' || s === 'acp' ? s : undefined
 }
 
-function asWarmupWindows(v: unknown): WarmupWindowMode | undefined {
-  if (typeof v !== 'string') return undefined
-  const s = v.trim().toLowerCase()
-  return s === 'weekly' || s === '5h' || s === 'both' ? s : undefined
-}
-
 /** Layered config read; cheap enough to call per request (thunk pattern). */
 export function resolveConfig(
   entry: Record<string, unknown> | undefined,
@@ -190,13 +172,6 @@ export function resolveConfig(
     quotaViaCli: asBool(get('quotaViaCli')) ?? base.quotaViaCli,
     proxyUrl: asString(get('proxyUrl')) ?? base.proxyUrl,
     suppressAgyAutoUpdate: asBool(get('suppressAgyAutoUpdate')) ?? base.suppressAgyAutoUpdate,
-    autoWarmup: asBool(get('autoWarmup')) ?? base.autoWarmup,
-    warmupModels: asStringArray(get('warmupModels')) ?? base.warmupModels,
-    warmupWindows: asWarmupWindows(get('warmupWindows')) ?? base.warmupWindows,
-    warmupDailyTime: asString(get('warmupDailyTime')) ?? base.warmupDailyTime,
-    warmupTimezone: asString(get('warmupTimezone')) ?? base.warmupTimezone,
-    warmupIntervalHours: asNum(get('warmupIntervalHours')) ?? base.warmupIntervalHours,
-    warmupMaxProbesPerRun: asNum(get('warmupMaxProbesPerRun')) ?? base.warmupMaxProbesPerRun,
     showHeaderBadge: asBool(get('showHeaderBadge')) ?? base.showHeaderBadge,
     poolWideCatalog: asBool(get('poolWideCatalog')) ?? base.poolWideCatalog,
     backgroundWakeup: asBool(get('backgroundWakeup')) ?? base.backgroundWakeup,
@@ -320,30 +295,6 @@ export function resolveConfig(
     const sa = asBool(env.DSH_AGY_SUPPRESS_AUTOUPDATE)
     if (sa !== undefined) cfg.suppressAgyAutoUpdate = sa
   }
-  if (env.DSH_AGY_AUTO_WARMUP !== undefined) {
-    const aw = asBool(env.DSH_AGY_AUTO_WARMUP)
-    if (aw !== undefined) cfg.autoWarmup = aw
-  }
-  if (env.DSH_AGY_WARMUP_MODELS) {
-    const wm = asStringArray(env.DSH_AGY_WARMUP_MODELS.split(','))
-    if (wm) cfg.warmupModels = wm
-  }
-  if (env.DSH_AGY_WARMUP_WINDOWS) {
-    const ww = asWarmupWindows(env.DSH_AGY_WARMUP_WINDOWS)
-    if (ww) cfg.warmupWindows = ww
-  }
-  if (env.DSH_AGY_WARMUP_DAILY_TIME !== undefined) cfg.warmupDailyTime = env.DSH_AGY_WARMUP_DAILY_TIME
-  if (env.DSH_AGY_WARMUP_TIMEZONE !== undefined) cfg.warmupTimezone = env.DSH_AGY_WARMUP_TIMEZONE
-  if (env.DSH_AGY_WARMUP_INTERVAL_HOURS) {
-    const ih = asNum(env.DSH_AGY_WARMUP_INTERVAL_HOURS)
-    if (ih !== undefined && ih >= 0) cfg.warmupIntervalHours = Math.min(168, Math.floor(ih))
-  }
-  if (env.DSH_AGY_WARMUP_MAX_PROBES) {
-    const mp = asNum(env.DSH_AGY_WARMUP_MAX_PROBES)
-    if (mp !== undefined && mp >= 0) cfg.warmupMaxProbesPerRun = Math.floor(mp)
-  }
-  cfg.warmupIntervalHours = clampWarmupIntervalHours(cfg.warmupIntervalHours)
-  cfg.warmupMaxProbesPerRun = Math.min(200, Math.max(0, Math.floor(cfg.warmupMaxProbesPerRun)))
   if (env.DSH_AGY_SHOW_HEADER_BADGE !== undefined) {
     const shb = asBool(env.DSH_AGY_SHOW_HEADER_BADGE)
     if (shb !== undefined) cfg.showHeaderBadge = shb

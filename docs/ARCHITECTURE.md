@@ -16,7 +16,7 @@ runtime/     process and platform I/O (agy runner/parser/mapper, proxy/env)
 provider/    the LlmAdapter pipeline (call context, purpose policy, prompt,
              account selection, failure classification, attempt/finalize)
   ↑
-features/    acp, warmup, diagnostics, subagent, background
+features/    acp, diagnostics, subagent, background
   ↑
 transport/   HTTP routes, respond helpers, tool registration
   ↑

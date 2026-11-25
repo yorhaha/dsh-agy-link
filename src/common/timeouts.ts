@@ -15,16 +15,6 @@ export const STATUS_TIMEOUT_MS = 5_000
 /** A write (sync / config / auth): the busy flag must always clear. */
 export const WRITE_TIMEOUT_MS = 20_000
 
-/** Manual CLI warmup across one or more accounts (up to 45s per CLI probe). */
-export const WARMUP_WRITE_TIMEOUT_MS = 90_000
-
-/**
- * Floor for `warmupIntervalHours` (hours). A full-pool warmup run now takes
- * minutes by design (accounts are 30–120s apart), so a 1-hour interval would
- * re-arm before the previous run finished. 0 still means "disabled".
- */
-export const MIN_WARMUP_INTERVAL_HOURS = 3
-
 /** Host-side hard deadline for any plugin route; the last line of defence. */
 export const ROUTE_TIMEOUT_MS = 30_000
 

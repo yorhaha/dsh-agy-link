@@ -22,7 +22,6 @@ const noopHandlers = {
   removeAccount: async () => {},
   toggleAccountEnabled: async () => {},
   refreshQuota: async () => {},
-  warmupAccount: async () => {},
   saveProxy: async () => {},
   saveAlias: async () => {},
   clearCooldown: async () => {},
@@ -71,7 +70,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     expandedModels: {},
     toggleExpand: () => {},
     optimisticActiveByFamily: {},
-    warmupState: null,
     handlers: noopHandlers,
   }))
 
@@ -112,7 +110,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     expandedModels: {},
     toggleExpand: () => {},
     optimisticActiveByFamily: {},
-    warmupState: null,
     handlers: noopHandlers,
   }))
   assert.ok(fullTree.includes('#f59e0b'), 'account where ALL known families are cooling renders amber dot')
@@ -151,7 +148,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     expandedModels: {},
     toggleExpand: () => {},
     optimisticActiveByFamily: {},
-    warmupState: null,
     handlers: noopHandlers,
   }))
   assert.ok(clearedTree.includes('#10b981'), 'cleared quota gate restores green dot')

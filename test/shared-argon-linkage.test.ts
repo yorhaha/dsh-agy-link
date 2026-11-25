@@ -26,7 +26,6 @@ const noopHandlers = {
   removeAccount: async () => {},
   toggleAccountEnabled: async () => {},
   refreshQuota: async () => {},
-  warmupAccount: async () => {},
   saveProxy: async () => {},
   saveAlias: async () => {},
   clearCooldown: async () => {},
@@ -164,7 +163,6 @@ test('Gap 1: shared-group google/argon cooldowns, countdowns, failover, clearCoo
       expandedModels: {},
       toggleExpand: () => {},
       optimisticActiveByFamily: {},
-      warmupState: null,
       handlers: noopHandlers,
     }))
     assert.equal(panelTree.includes('"Argon"'), false, 'shared-group cooling must not render a phantom Argon bar')

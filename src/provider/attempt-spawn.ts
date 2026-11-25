@@ -11,6 +11,7 @@ import { ensureIsolatedKeychain, startAgyProcess } from '../host/runner.ts'
 import { agyHomeDirFor, snapshotAgyLogs, type AgyLogSnapshot } from '../host/agy-log.ts'
 import { buildAgyEnv, pickProxy } from '../runtime/net/account-env.ts'
 import {
+  abortableDelay,
   persistBindingOnResult,
   type AttemptDeps,
   type AttemptInput,
@@ -18,22 +19,6 @@ import {
   type AttemptSlot,
   type SpawnPlan,
 } from './attempt.ts'
-
-/** Abort-aware sleep: rejects with the same error text the call sites used. */
-function abortableDelay(ms: number, signal: AbortSignal | undefined, abortedMessage: string): Promise<void> {
-  if (signal?.aborted) return Promise.reject(new LlmError(abortedMessage, Err.AGY_ERROR))
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(new LlmError(abortedMessage, Err.AGY_ERROR))
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
 
 function brief(s: string): string {
   const flat = s.trim().replace(/\s+/g, ' ')

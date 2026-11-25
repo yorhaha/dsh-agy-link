@@ -1,17 +1,12 @@
 // Plugin identity, the user-facing config shape, and its defaults.
 
-import { DEFAULT_FALLBACK_MODELS, PREFERRED_CLAUDE, PREFERRED_GEMINI_FLASH, type FallbackModelDef } from '../model-lineup.ts'
+import { DEFAULT_FALLBACK_MODELS, type FallbackModelDef } from '../model-lineup.ts'
 
 export const PROVIDER_ID = 'antigravity'
-export const PLUGIN_ID = 'agy-link'
-export const PKG_NAME = 'dsh-agy-link'
 
 export type PermissionMode = 'skip' | 'auto' | 'plan' | 'accept-edits'
 
 export type AgyTransportMode = 'cli' | 'acp'
-
-export type WarmupWindowMode = 'weekly' | '5h' | 'both'
-
 
 export interface PluginConfig {
   enabled: boolean
@@ -205,30 +200,6 @@ export interface PluginConfig {
    */
   suppressAgyAutoUpdate: boolean
   /**
-   * 7-day weekly quota auto-warmup (smart reset activation): automatically
-   * sends a minimal probe when an account reaches its weekly reset window or
-   * cold start, activating the 7-day upstream timer.
-   */
-  autoWarmup: boolean
-  /** Models monitored/used for auto-warmup. Defaults to the Gemini Flash + Claude lineup picks. */
-  warmupModels: readonly string[]
-  /** Quota windows eligible for auto-warmup: 'weekly' (default), '5h', or 'both'. */
-  warmupWindows: WarmupWindowMode
-  /** Optional daily scheduled warmup wall-clock time (`HH:MM`, empty = event-driven/default). */
-  warmupDailyTime: string
-  /** Optional IANA timezone for `warmupDailyTime` (e.g. `Asia/Shanghai`, empty = local timezone). */
-  warmupTimezone: string
-  /** Optional fixed warmup interval in hours (0 = disabled, 1..168). */
-  warmupIntervalHours: number
-  /**
-   * Hard cap on CLI probes per warmup run (`0` = unlimited).
-   *
-   * A pool of N accounts × up to 4 model families can queue dozens of probes
-   * from one egress IP. Manual/scheduled runs stop here and report the rest as
-   * skipped instead of bursting through every account.
-   */
-  warmupMaxProbesPerRun: number
-  /**
    * Show Antigravity status badge in the conversation header toolbar (default: true).
    * Set false to hide it (especially on mobile / narrow viewports).
    */
@@ -358,17 +329,6 @@ export function defaultConfig(): PluginConfig {
     // Windows is where agy's `--bg-updater` grandchild flashes a console
     // window; other platforms keep agy's own update behaviour by default.
     suppressAgyAutoUpdate: process.platform === 'win32',
-    // Opt-in: this path sends direct REST probes to Google's internal
-    // endpoints, so it must never start probing on upgrade. Users enable it
-    // explicitly with `autoWarmup: true` / DSH_AGY_AUTO_WARMUP=1.
-    autoWarmup: false,
-    warmupModels: [PREFERRED_GEMINI_FLASH, PREFERRED_CLAUDE],
-    warmupWindows: 'weekly',
-    warmupDailyTime: '',
-    warmupTimezone: '',
-    warmupIntervalHours: 0,
-    // Bounded by default so one click cannot probe an entire large pool.
-    warmupMaxProbesPerRun: 12,
     showHeaderBadge: true,
     poolWideCatalog: false,
     backgroundWakeup: false,

@@ -11,7 +11,6 @@ import { installAgentEmbedRenderer } from '../src/client/embed.ts'
 import { bindTranslator, resetTranslatorForTest } from '../src/client/i18n-bridge.ts'
 import { enhanceAudioLink } from '../src/client/images/audio.ts'
 import { RuntimeControlsSection } from '../src/client/sections/RuntimeControlsRows.ts'
-import { WarmupStatusBar } from '../src/client/sections/WarmupStatusBar.ts'
 import { CardBody } from '../src/client/toolview/card-bodies.ts'
 import { mirrorCardModel } from '../src/client/toolview/card-model.ts'
 import type { ToolBlock } from '../src/client/toolview/types.ts'
@@ -298,7 +297,7 @@ test('extended toolview models & CardBody render image-generator, swarm, workflo
   }
 })
 
-test('client sections (RuntimeControlsRows, WarmupStatusBar) render cleanly across states', withDom(async () => {
+test('client sections (RuntimeControlsRows) render cleanly across states', withDom(async () => {
   {
     const t = ((k: string, p?: Record<string, unknown>) => (p ? `${k}:${JSON.stringify(p)}` : k)) as never
     const cfgWrites: Array<[string, unknown]> = []
@@ -315,23 +314,6 @@ test('client sections (RuntimeControlsRows, WarmupStatusBar) render cleanly acro
     const runtimeHtml = renderToStaticMarkup(createElement(RuntimeControlsSection as never, { t, status, loadingAction: null, setCfg }))
     assert.match(runtimeHtml, /config\.acpStats/)
     assert.match(runtimeHtml, /config\.permissionMode/)
-
-    const runningBar = renderToStaticMarkup(createElement(WarmupStatusBar as never, {
-      t,
-      warmupState: { running: true, completed: 1, total: 2, currentAccountId: 'a1', lastRun: null },
-      accounts: [{ id: 'a1', alias: 'Alpha', dir: '', enabled: true, createdAt: 0 }],
-    }))
-    assert.match(runningBar, /warmup\.progressCurrent.*Alpha/)
-
-    const lastRunBar = renderToStaticMarkup(createElement(WarmupStatusBar as never, {
-      t,
-      warmupState: {
-        running: false, completed: 1, total: 1, currentAccountId: null,
-        lastRun: { finishedAt: Date.now(), totalAccounts: 1, succeeded: 1, skipped: 0, failed: 0, accounts: [{ accountId: 'a1', alias: 'Alpha', succeeded: 1, skipped: 0, failed: 0 }] },
-      },
-      accounts: [],
-    }))
-    assert.match(lastRunBar, /warmup\.lastRun/)
 
   }
 }))

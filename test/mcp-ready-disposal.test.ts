@@ -43,14 +43,12 @@ test('disposing a ready plugin clears background timers, closes MCP and restores
     const servers = listeners.mock.calls.map(call => call.result).filter(server => server?.listening) as Server[]
     assert.equal(servers.length, 1)
     const sweeps = intervals.mock.calls.filter(c => Number(c.arguments[1]) >= 60000)
-    // Boot timers: the 4s agy version probe and the 5s quota refresh. The
-    // warmup scheduler is interval-only (no boot pass, so an upgrade never
-    // probes on stale pool.json rows).
+    // Boot timers: the 4s agy version probe and the 5s quota refresh.
     const boots = timeouts.mock.calls.filter(c => [4000, 5000].includes(Number(c.arguments[1])))
-    // media TTL, quota refresh, warmup, catalog TTL, the deferred boot-maintenance
+    // media TTL, quota refresh, catalog TTL, the deferred boot-maintenance
     // interval (30 min), and the 2-minute fast self-heal for accounts flagged as
     // 需重新登录 (AUTH_FAST_REVERIFY_MS).
-    assert.equal(sweeps.length, 6, 'media TTL, quota refresh, warmup, catalog TTL, maintenance and auth re-verify are all >= 60s')
+    assert.equal(sweeps.length, 5, 'media TTL, quota refresh, catalog TTL, maintenance and auth re-verify are all >= 60s')
     assert.equal(boots.length, 2)
     for (const call of [...sweeps, ...boots]) assert.equal((call.result as NodeJS.Timeout).hasRef(), false)
     await ctx.fiber.dispose()
