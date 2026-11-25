@@ -442,23 +442,9 @@ body[data-ds-dark-theme] select.agy-select { color-scheme: dark; }
 		padding: 4px 6px !important;
 		min-width: 0 !important;
 	}
-	.agy-modal-backdrop {
-		padding: 0 !important;
-		align-items: stretch !important;
-		justify-content: stretch !important;
-	}
-	.agy-modal-panel {
-		width: 100% !important;
-		max-width: none !important;
-		height: 100dvh !important;
-		max-height: 100dvh !important;
-		border: 0 !important;
-		border-radius: 0 !important;
-	}
-	.agy-modal-head {
-		padding: 12px 14px !important;
-		padding-top: max(12px, env(safe-area-inset-top)) !important;
-	}
+	.agy-modal-backdrop { padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
+	.agy-modal-panel { width: 100% !important; max-width: none !important; height: 100dvh !important; max-height: 100dvh !important; border: 0 !important; border-radius: 0 !important; }
+	.agy-modal-head { padding: 12px 14px !important; padding-top: max(12px, env(safe-area-inset-top)) !important; }
 	.agy-modal-body {
 		padding: 14px 12px calc(18px + env(safe-area-inset-bottom)) !important;
 		-webkit-overflow-scrolling: touch;
@@ -569,6 +555,14 @@ body[data-ds-dark-theme] select.agy-select { color-scheme: dark; }
 	}
 	/* Micro move buttons stay compact on phone */
 	.agy-card-title-cluster .agy-btn { min-height: 18px !important; height: 18px !important; }
+
+	/* Four tab labels don't fit a phone width. The generic segmented-control
+	   rule above also matches the strip (it reuses --agy-seg-group-bg) and
+	   shrinks each tab, spilling nowrap text over its neighbour. Keep tabs at
+	   natural width and let the strip scroll instead of crushing them. */
+	.agy-console-tabs { flex-wrap: nowrap !important; overflow-x: auto !important; overflow-y: hidden !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; max-width: 100%; }
+	.agy-console-tabs::-webkit-scrollbar { display: none; }
+	:is(.agy-console, .agy-modal-panel) .agy-console-tabs > button { flex: 0 0 auto !important; min-width: auto !important; }
 }
 
 @media (max-width: 420px) {

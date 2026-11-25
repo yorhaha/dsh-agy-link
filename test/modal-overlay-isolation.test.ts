@@ -186,3 +186,21 @@ test('REGRESSION: modal pins top edge, lets bottom adapt to tab height, and refr
 	const stylesSrc = readFileSync(join(root, 'src/client/styles.ts'), 'utf8')
 	assert.match(stylesSrc, /existing\.textContent\s*!==\s*GLOBAL_CSS/, 'hot-reloading the plugin must refresh the existing style node')
 })
+
+test('REGRESSION: the phone tab strip scrolls instead of crushing its labels', () => {
+	// Four tab labels don't fit a phone width; letting the generic segmented-
+	// control rule shrink each tab (flex:1 1 0px) made the nowrap text spill
+	// over its neighbours ("账号与配额" clipped, badges colliding). The phone
+	// override must let the strip scroll horizontally with tabs at natural width.
+	const mediaIdx = cssSrc.indexOf('@media (max-width: 680px)')
+	assert.ok(mediaIdx > 0, 'the phone media block must exist')
+	const block = cssSrc.slice(mediaIdx)
+	assert.match(block, /\.agy-console-tabs\s*\{[^}]*overflow-x\s*:\s*auto/, 'the tab strip scrolls horizontally on phone')
+	assert.match(block, /\.agy-console-tabs\s*\{[^}]*flex-wrap\s*:\s*nowrap/, 'the tab strip must not wrap on phone')
+	assert.match(
+		block,
+		/\.agy-console-tabs\s*>\s*button\s*\{[^}]*flex\s*:\s*0\s+0\s+auto\s*!important/,
+		'tabs keep natural width instead of being crushed by the segmented-group flex rule',
+	)
+})
+
