@@ -1,7 +1,5 @@
-// Issue #105: the user-hideable affordance. Extracted from the runtime
-// settings rows so both the panel and its row builder stay under the size
-// budget; the switches are pure presentation — the single source of truth is
-// the /status snapshot (see .spec/ui-visibility.md).
+// Issue #105: the user-hideable affordance. The switch is pure presentation —
+// the single source of truth is the /status snapshot (see .spec/ui-visibility.md).
 import { h } from '../react.ts';
 import type { Translator } from '../hooks/useTranslation.ts';
 import type { StatusPayload } from '../status.ts';
@@ -54,14 +52,4 @@ export function renderHeaderBadgeRow(args: {
 		key: 'showHeaderBadge',
 		visible: args.status.showHeaderBadge !== false,
 	});
-}
-
-/** Returns the display rows; React flattens the array inside the parent's children. */
-export function renderVisibilityRows(args: {
-	t: Translator;
-	status: StatusPayload;
-	loadingAction: string | null;
-	setCfg: (key: string, value: unknown) => Promise<void>;
-}): unknown[] {
-	return [renderHeaderBadgeRow(args)];
 }

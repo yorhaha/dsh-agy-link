@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 
 import {
   catalogEfforts,
-  geminiCatalogModels,
   modelEfforts,
   translateModelOptions,
   translateEffortOptions,
@@ -14,7 +13,7 @@ import { isGeminiFamilyModel } from '../src/common/model-lineup.ts'
 
 const labels: EffortLabels = { auto: 'Auto', level: (id) => effortLabel(id) }
 
-test('translation model dropdown: auto first, then the catalog in order, deduped', () => {
+test('model dropdown: auto first, then the catalog in order, deduped', () => {
   const models = [
     { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
     { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
@@ -28,7 +27,7 @@ test('translation model dropdown: auto first, then the catalog in order, deduped
   ])
 })
 
-test('translation model dropdown keeps an unlisted current id selectable', () => {
+test('model dropdown keeps an unlisted current id selectable', () => {
   // The catalog is advisory: a model configured by hand (or dropped from the
   // plan) must still show up selected instead of silently reading as "auto".
   const opts = translateModelOptions('gemini-9-pro', [{ id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' }], 'Auto')
@@ -36,7 +35,7 @@ test('translation model dropdown keeps an unlisted current id selectable', () =>
   assert.equal(opts.filter((o) => o.value === 'gemini-9-pro').length, 1)
 })
 
-test('translation model dropdown tolerates blank catalog entries and blank names', () => {
+test('model dropdown tolerates blank catalog entries and blank names', () => {
   const opts = translateModelOptions('', [{ id: '  ', name: 'x' }, { id: 'm1', name: '  ' }], 'Auto')
   assert.deepEqual(opts, [
     { value: '', label: 'Auto' },
@@ -78,19 +77,6 @@ test('effort dropdown keeps an unknown configured level visible without duplicat
   const extra = translateEffortOptions(' ULTRA ', labels, 'gemini-3.8-flash', models)
   assert.deepEqual(extra[extra.length - 1], { value: 'ultra', label: 'ULTRA'.toLowerCase() })
   assert.equal(translateEffortOptions('HIGH', labels, 'gemini-3.8-flash', models).length, 4, 'known levels never duplicate')
-})
-
-test('translation model dropdown only offers the Gemini family', () => {
-  // The card is labelled "Gemini 译文"; offering Claude/GPT there would make the
-  // label wrong. A hand-configured id still shows through translateModelOptions.
-  const models = [
-    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
-    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
-    { id: 'gpt-oss-120b-medium', name: 'GPT-OSS' },
-  ]
-  assert.deepEqual(geminiCatalogModels(models).map((m) => m.id), ['gemini-3.8-flash'])
-  const opts = translateModelOptions('', geminiCatalogModels(models), 'Auto')
-  assert.equal(opts.some((o) => o.value === 'claude-sonnet-5-5'), false)
 })
 
 test('modelEfforts ignores malformed effort data', () => {

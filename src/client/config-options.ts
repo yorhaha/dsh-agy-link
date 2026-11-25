@@ -9,7 +9,6 @@
 //     hand (env var, older settings file, model dropped from the plan) stays
 //     selectable, otherwise the control would silently misreport the state.
 
-import { isGeminiFamilyModel } from '../common/model-lineup.ts'
 import { isOrchestratorModel, isOrchestratorRoleModel, type OrchestratorRole } from '../common/orchestrator.ts'
 
 export interface SelectOption {
@@ -60,8 +59,10 @@ function findCatalogModel(modelId: string, models: ReadonlyArray<CatalogModelLik
 }
 
 /**
- * Translation-model dropdown: `''` (host fallback chain: gemini-3.8-flash →
- * newest gemini-*-flash → conversation default) plus every catalog model.
+ * Model dropdown for a role seat's model picker: `''` (host fallback,
+ * rendered as `autoLabel`) plus every catalog model, deduped and in catalog
+ * order. A model configured by hand is still appended, so the state stays
+ * honest.
  */
 export function translateModelOptions(
 	current: string,
@@ -80,15 +81,6 @@ export function translateModelOptions(
 	const wanted = typeof current === 'string' ? current.trim() : ''
 	if (wanted !== '' && !seen.has(wanted)) options.push({ value: wanted, label: wanted })
 	return options
-}
-
-/**
- * The dropdown offers the Gemini family only: the card is branded "Gemini 译文",
- * so picking e.g. Claude there would make the label a lie. A model configured by
- * hand is still appended by `translateModelOptions`, so the state stays honest.
- */
-export function geminiCatalogModels(models: ReadonlyArray<CatalogModelLike>): CatalogModelLike[] {
-	return models.filter((model) => typeof model?.id === 'string' && isGeminiFamilyModel(model.id))
 }
 
 /** Models eligible as Orchestrator Planner or Executor (excludes orchestrator role slugs themselves). */

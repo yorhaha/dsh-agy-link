@@ -15,7 +15,7 @@ import {
 	type StatusPayload,
 } from '../src/client/status.ts';
 import { createSessionStatus } from '../src/client/sections/SessionStatus.ts';
-import { renderVisibilityRows } from '../src/client/sections/VisibilityRows.ts';
+import { renderHeaderBadgeRow } from '../src/client/sections/VisibilityRows.ts';
 
 const createElement = (React as { createElement: (type: unknown, props?: unknown, ...children: unknown[]) => unknown }).createElement;
 
@@ -40,26 +40,23 @@ test('isUiVisible is opt-out: only an explicit false hides an affordance', () =>
 
 test('visibility rows: the badge switch renders and writes the correct config key', () => {
 	const written: Array<[string, unknown]> = []
-	const rows = renderVisibilityRows({
+	const row = renderHeaderBadgeRow({
 		t: ((key: string) => key) as never,
 		status: { showHeaderBadge: false },
 		loadingAction: 'config:showHeaderBadge',
 		setCfg: async (key, value) => { written.push([key, value]) },
-	}) as Array<{ props: { right: { props: { children: Array<{ props: { onClick: () => void; disabled: boolean; variant: string } }> } } } }>
-	assert.equal(rows.length, 1)
-	const html = renderToStaticMarkup(createElement('div', null, ...rows))
+	}) as { props: { right: { props: { children: Array<{ props: { onClick: () => void; disabled: boolean; variant: string } }> } } } }
+	const html = renderToStaticMarkup(createElement('div', null, row))
 	assert.match(html, /config\.showHeaderBadge/)
 
 	// The hidden row marks "off" active and disables its buttons while a write
 	// is in flight.
-	const headerButtons = rows[0]!.props.right.props.children
+	const headerButtons = row.props.right.props.children
 	assert.equal(headerButtons[0]!.props.variant, 'seg')
 	assert.equal(headerButtons[1]!.props.variant, 'segActive')
 	assert.equal(headerButtons[0]!.props.disabled, true)
 
-	for (const row of rows) {
-		for (const button of row.props.right.props.children) button.props.onClick()
-	}
+	for (const button of row.props.right.props.children) button.props.onClick()
 	assert.deepEqual(written, [
 		['showHeaderBadge', true], ['showHeaderBadge', false],
 	])
