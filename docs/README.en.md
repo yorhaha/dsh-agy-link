@@ -13,7 +13,6 @@
 </p>
 
 <p align="center">
-  <b>🌐 Language:</b>
   <a href="../README.md">中文</a> ·
   English ·
   <a href="./CONFIGURATION.md">Configuration</a> ·
@@ -23,26 +22,20 @@
 
 ---
 
-Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the official, unmodified `agy` CLI: streaming, thinking, rich native tool cards, Generative UI embeds, 1M physical context metering, in-GUI OAuth login, per-family multi-account pooling with automatic failover, CLI-first multi-bucket quota tracking (5h rolling + 7d weekly + Argon weekly), and multimodal attachments.
+Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the official, unmodified `agy` CLI: streaming, thinking, native tool cards, Generative UI embeds, 1M context metering, in-GUI OAuth, per-family multi-account pooling with failover, CLI-first multi-bucket quota tracking, and multimodal attachments.
 
 <p align="center">
-  <img src="./assets/console.png" alt="Antigravity 4-tab console — multi-account pool and multi-bucket quota bars" width="760" />
+  <img src="./assets/console.png" alt="Antigravity console" width="760" />
 </p>
 <p align="center">
-  <img src="./assets/model-picker.png" alt="Antigravity (agy 1.5.16) model list in the DSH model picker" width="240" />
+  <img src="./assets/model-picker.png" alt="Model picker" width="240" />
   &nbsp;&nbsp;
-  <img src="./assets/models-orchestrator.png" alt="Models & Orchestrator Planner/Executor settings tab" width="520" />
+  <img src="./assets/models-orchestrator.png" alt="Models & Orchestrator" width="520" />
 </p>
 <p align="center">
-  <img src="./assets/settings.png" alt="Features & UI tab: /a* quick commands" width="380" />
+  <img src="./assets/settings.png" alt="Features & UI" width="380" />
   &nbsp;&nbsp;
-</p>
-<p align="center">
-</p>
-<p align="center">
-  <img src="./assets/token-usage.png" alt="Native context cache and token usage breakdown" width="330" />
-  &nbsp;&nbsp;
-  <img src="./assets/context-metering.png" alt="1M physical context metering breakdown" width="310" />
+  <img src="./assets/token-usage.png" alt="Token usage" width="330" />
 </p>
 
 ---
@@ -51,15 +44,15 @@ Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the offi
 
 | | |
 | --- | --- |
-| 🤖 **Antigravity models, 4-tab console & Orchestrator** | Syncs the `agy 1.5.16` lineup (including `Gemini 4 Carbon` and `Orchestrator` roles), tick-list allow-list (`selectedModels`), `poolWideCatalog` routing, `--effort` refusal learning, and Planner/Executor overrides across the 4-tab console. |
-| 🔁 **Per-family multi-account pool** | Independent active pins and cooldowns across `Gemini`, `Argon`, `Claude`, and `GPT-OSS`; sequential drain or round-robin with quota-expiry-first rotation, per-account isolated HOME + proxy, and Windows identity-leased slots (#199 freshness guard). |
-| 📊 **CLI-first quota console & busy deferral** | Prefers `agy -p /usage` (`quotaViaCli: true`) with official summary fallback; tracks 5h rolling, 7d weekly, and Argon weekly buckets, and auto-defers background refreshes while turns are active. |
-| 🛡️ **4 permission modes, sandbox & ACP default** | `permissionMode` supports `skip`, `auto`, `accept-edits`, and `plan` (`/aplan` enforces one-shot read-only); defaults to persistent `agy acp` stdio pool (reused for `isAux` calls with ephemeral `session/close` and pre-stream `cli` fallback) and a session-owned route for MCP-enabled turns. |
-| 🃏 **Extended tool cards & Generative UI** | Native Terminal/Diff/Read/Search/MCP cards (unwrapping `alwaysLoad` bridge names) plus dedicated cards for `swarm`, `run_workflow`, `schedule`, `manage_task`, subagent lifecycle, `image-generator`, and DevTools; renders `<agent-embed>` HTML widgets inside strict-CSP sandboxed `<iframe>`s. |
-| 🎬 **Multimodal inputs & inline playback** | Stages images plus PDF, audio, and video attachments (up to `mediaMaxFileBytes` 20 MiB default via `--add-dir`), with fullscreen image lightbox (with Copy Image), video preview, inline `<audio>` player, Mermaid diagrams, decision chips, and compaction cards. |
-| 🔐 **In-GUI OAuth & token import** | Zero-paste browser PKCE OAuth (`127.0.0.1:51121`) with manual code/URL fallback plus direct `refresh_token`/JSON import; jitter-safe `NETWORK` vs `AUTH` classification and `TOS_VIOLATION` circuit breaker. |
-| ⚡ **Full `/a*` slash command suite** | Direct conversation commands (`/aplan`, `/agoal`, `/agrill`, `/aboost`, `/aswarm`, `/ateamwork`, `/aschedule`, `/abrowser`, `/acmd` with ACP `available_commands_update` inspection & index-0 slash preservation) plus meta actions (`/acompact`, `/afork`, `/alearn`). |
-| 🌐 **4-locale UI & visibility toggles** | Full `en`, `zh`, `es`, and `pt-BR` localization, responsive `< 680px` mobile drawer, and opt-out `showHeaderBadge` / `showTranslateAction` controls. |
+| 🤖 **Models & 4-tab console** | Syncs the `agy` lineup (incl. `Gemini 4 Carbon`, `Orchestrator`), allow-list (`selectedModels`), `poolWideCatalog` routing, `--effort` refusal learning, Planner/Executor overrides. |
+| 🔁 **Per-family pool** | Independent pins and cooldowns across `Gemini`/`Argon`/`Claude`/`GPT-OSS`; sequential drain or round-robin with quota-expiry-first rotation, isolated HOME + proxy, Windows identity-leased slots. |
+| 📊 **CLI-first quota** | Prefers `agy -p /usage` (`quotaViaCli`) with summary fallback; 5h / 7d / Argon weekly buckets; defers background refresh during active turns. |
+| 🛡️ **Permissions, sandbox & ACP** | `skip` / `auto` / `accept-edits` / `plan` (`/aplan` read-only) + `--sandbox`; default persistent `agy acp` pool with pre-stream `cli` fallback; MCP step-scoped routing. |
+| 🃏 **Tool cards & Generative UI** | Native Terminal/Diff/Read/Search/MCP cards plus `swarm`, `run_workflow`, `schedule`, `manage_task`, subagent, `image-generator`; `<agent-embed>` CSP-sandboxed widgets. |
+| 🎬 **Multimodal** | Images + PDF/audio/video staging (`--add-dir`), lightbox, video preview, inline `<audio>`, Mermaid, decision chips, compaction cards. |
+| 🔐 **OAuth & token import** | Zero-paste browser PKCE (`127.0.0.1:51121`) + `refresh_token`/JSON import; `NETWORK` vs `AUTH` classification and `TOS_VIOLATION` circuit breaker. |
+| ⚡ **`/a*` commands** | `/aplan` `/agoal` `/agrill` `/aboost` `/aswarm` `/ateamwork` `/aschedule` `/abrowser` `/acmd`; meta `/acompact` `/afork` `/alearn`. |
+| 🌐 **i18n & toggles** | `en` / `zh` / `es` / `pt-BR`; `<680px` drawer; `showHeaderBadge` opt-out. |
 
 ## 📋 Requirements
 
@@ -67,97 +60,85 @@ Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the offi
 | --- | --- |
 | DSH | `dsh --version` |
 | Node.js ≥ 24 | `node --version` |
-| Google Antigravity CLI (≥ 1.5) | `agy --version` (install: https://antigravity.google/docs/cli/install) |
+| Antigravity CLI (≥ 1.5) | `agy --version` (https://antigravity.google/docs/cli/install) |
 | Google connectivity | proxy/VPN/TUN where required |
 
-Where Google is unreachable directly, enable system proxy/TUN before starting DSH, or set a per-account proxy in the Antigravity panel.
+Where Google is unreachable, enable system proxy/TUN before starting DSH, or set a per-account proxy in the panel.
 
 ## 🚀 Quick start
 
 ```bash
-# Install into the web profile
 dsh plugin --profile web add dsh-agy-link --registry https://registry.npmjs.org
-
-# Start DSH Web
 dsh web
 
-# In the chat input:
-/agy status              # binary, version, transport, sandbox, pool and catalog status
+# in chat input:
+/agy status              # binary, version, transport, pool, catalog
 /agy auth                # sign the primary account in
-/agy pool                # list account IDs and per-family quota/active pins
-/agy auth <account-id>   # reauthenticate an existing secondary account (also accepts full alias or email)
-/agy auth-status         # check the final login result within 30 seconds
+/agy pool                # account IDs + per-family quota/active pins
+/agy auth <account-id>   # reauth a secondary (alias or email also accepted)
+/agy auth-status         # final login result
 ```
 
-Add more accounts from the **AGY (n)** badge in the header (browser login or token import), then pick an Antigravity model in `/model`.
+Add more accounts from the **AGY (n)** badge (browser login or token import), then pick an Antigravity model in `/model`.
 
-## 🧩 `/agy` command bridges
+## 🧩 `/agy` commands
 
-- **Slash & runtime commands**:
-  - Execution & transport: `/agy mode <skip|auto|plan|accept-edits>`, `/agy sandbox [on|off]`, `/agy transport [cli|acp|status]`, `/agy agent [name|off]`, `/agy settings [show|<json-or-path>|clear]`, `/agy effort <low|medium|high|xhigh|max|default>`
-  - Session & workflow bridges: `/agy goal [status|set|edit|pause|resume|complete|clear]`, `/agy session [info|clear]`, `/agy fork [list|restore <id>|<prompt>]`, `/agy grill [topic]` (`/agy grill-me`), `/agy learn [--apply] [focus]`, `/agy compact [focus]`, `/agy doctor`
-  - Top-level `a`-prefix commands (direct conversation turns, `images: true`, no confirmation modal): `/aplan [task]` (one-shot read-only `--mode plan`), `/agoal <objective|status|...>`, `/agrill [topic]`, `/aboost [task]`, `/aswarm <task>`, `/ateamwork <task>`, `/aschedule <task>`, `/abrowser <task>`, `/acmd </cmd|list>`
-  - Meta commands: `/acompact [focus]`, `/afork [...]`, `/alearn [--apply] [focus]`
+- **Runtime:** `/agy mode <skip|auto|plan|accept-edits>`, `sandbox [on|off]`, `transport [cli|acp|status]`, `agent [name|off]`, `settings [show|<json|path>|clear]`, `effort <…>`, `workspace [path]`
+- **Session & workflow:** `/agy goal [...]`, `session [info|clear]`, `fork [...]`, `grill [topic]`, `learn [--apply] [focus]`, `compact [focus]`, `doctor`
+- **`/a*` direct turns:** `/aplan [task]` (one-shot read-only), `/agoal`, `/agrill`, `/aboost`, `/aswarm`, `/ateamwork`, `/aschedule`, `/abrowser`, `/acmd </cmd|list>`
+- **Meta:** `/acompact`, `/afork`, `/alearn`
 
 ## 🔌 External credential lease API
 
-On Windows every `agy.exe` reads one Credential Manager entry, `gemini:antigravity`; HOME/USERPROFILE only move conversation storage, not identity. The plugin coordinates that slot for its own runs, but a process that **launches the official `agy` itself** (for example a long-job runner that must survive a DSH restart) cannot see the plugin's in-memory counters: the slot may be swapped under it, and it can never run as a pool secondary. The lease API lets such a process join the same coordination — account selection, slot handling and failure settlement reuse the plugin's own code.
+On Windows every `agy.exe` reads one Credential Manager entry (`gemini:antigravity`); HOME only moves conversation storage, not identity. A process that **launches `agy` itself** (e.g. a long-job runner) cannot see the plugin's in-memory counters, so the lease API lets it join the same account-selection / slot / settlement logic.
 
-**Two kinds of lease** (same rule as the provider / ACP / quota paths):
-- **Isolated secondary account on agy >= 1.5**: the Windows slot is **not** taken (`slot: false`). The returned `env` carries `SSH_CONNECTION`, so agy reads only that account's own token file and runs lock-free beside other accounts. Before granting, the plugin brings that token file into the CLI safety window (the same code as the CLI quota read: agy started with a dying token can fall back to interactive browser login). An unknown agy version is probed first; a failed probe falls back to taking the slot, which is safe on every version.
-- **Primary account, or an isolated account on agy < 1.5**: the lease holds the slot (`slot: true`; same-account fast path / identity switch as usual).
+- **Isolated secondary on agy ≥ 1.5:** slot not taken (`slot: false`); returned `env` carries `SSH_CONNECTION` so agy reads only that account's token and runs lock-free. Unknown version is probed first; a failed probe falls back to taking the slot.
+- **Primary, or isolated account on agy < 1.5:** holds the slot (`slot: true`).
 
-**Discovery**: once the web port is known the plugin atomically writes `<pool dir>/.link-endpoint.json` (the directory holding `pool.json`: `~/.dsh/agy-accounts`, or `$DSH_STATE_DIR/agy-accounts`): `{"url":"http://127.0.0.1:<port>/plugins/agy-link","pid":<pid>,"startedAt":<epoch ms>,"token":"<64 hex chars>"}`, mode `0600` (on POSIX the owner and mode are checked after the write; if they are wrong the file is removed and the API stays unreachable; on Windows it inherits the pool directory's ACL). The token is new on every plugin start. On unload the file is removed only if it still names this process.
+**Discovery:** `<pool dir>/.link-endpoint.json` (default `~/.dsh/agy-accounts`) with `url / pid / startedAt / token`, mode `0600`, token regenerated each start.
 
-**Auth**: every `/lease*` request must carry `Authorization: Bearer <token>`, taken from the same read of `.link-endpoint.json`; a missing or wrong token is `401 unauthorized`, decided before the origin and method checks. Without the discovery file nobody can lease. JSON in and out; every error is `{ "ok": false, "code": "...", "error": "..." }`. Browser requests with a non-loopback `Origin` get `403 cross_origin`.
+**Auth:** every `/lease*` request needs `Authorization: Bearer <token>`, else `401`; non-loopback browser `Origin` gets `403`.
 
-| Endpoint | Body | Success | Errors |
-| --- | --- | --- | --- |
-| `POST /lease/acquire` | `holder` (required, ≤200 chars), `model?`, `accountId?` / `accountDir?` (**pin** the account: a continuation must return to the account that owns its conversation), `ttlMs?` (default 120000, clamped 15000–600000), `waitMs?` (slot wait; default as one-shot: `dispatchTimeoutMinutes × 60000`, else 60000; max 1 h) | `{ ok, leaseId, ttlMs, expiresAt, slot, env, account: { id, email, alias, primary, isolated, home, proxyUrl } }` | `400 invalid_json/invalid_request` · `404 account_not_found` · `409 account_unavailable` (pinned account disabled / needs re-login / slot refused / token not refreshable into the safety window) · `503 no_account` (with `retryAfterMs` when known) · `504 slot_timeout` · `502 slot_error` (e.g. the primary identity could not be verified online; retryable) |
-| `POST /lease/renew` | `leaseId`, `ttlMs?` | `{ ok, expiresAt }` | `404 lease_not_found` (unknown or expired) |
-| `POST /lease/release` | `leaseId`, `ok?`, `error?` (truncated to 8 KiB), `model?` | `{ ok, outcome }`, `outcome ∈ success / quota / tos / model_unsupported / eligibility / auth / other / none` | `404 lease_not_found` |
-| `GET /lease` | — | `{ leases: [{ leaseId, holder, accountId, email, acquiredAt, expiresAt, slot }] }` (diagnostics) | — |
+| Endpoint | Body | Success |
+| --- | --- | --- |
+| `POST /lease/acquire` | `holder` (required), `model?`, `accountId?`/`accountDir?` (pin), `ttlMs?` (120000, 15000–600000), `waitMs?` | `{ ok, leaseId, ttlMs, expiresAt, slot, env, account }` |
+| `POST /lease/renew` | `leaseId`, `ttlMs?` | `{ ok, expiresAt }` |
+| `POST /lease/release` | `leaseId`, `ok?`, `error?`, `model?` | `{ ok, outcome }` — `ok:true` success, `ok:false` settles via one-shot failure classification, omit to only release |
+| `GET /lease` | — | current leases (diagnostics) |
 
-Notes:
-- A **pinned** account must exist, be enabled and not need re-login; cooldowns are not checked. Unpinned, the plugin's own scheduler picks; a refused slot (settled as one-shot settles it) or a token that cannot be readied moves on to the next account, never the same account twice.
-- Overlay the returned `env` **as is** onto your agy process: for isolated accounts `HOME`/`USERPROFILE`/`HOMEDRIVE`/`HOMEPATH`/`GEMINI_CLI_HOME`/`ANTIGRAVITY_*`/`SSH_CONNECTION` (identical to the plugin's `isolatedHomeEnv`), the proxy variables (one uppercase spelling on Windows), `NO_PROXY` with the loopback hosts, and the quiet/headless `AGY_CLI_*`/`BROWSER`/`CI` switches. It never contains the host's own environment. `account.proxyUrl` is still returned.
-- `account.home` is the HOME the plugin's own runs use for the account: the isolated dir, or **for the primary the plugin host's user profile (`os.homedir()`)**. The primary's agy conversations live there (the DSH-ASA launcher, for example, points the host's USERPROFILE at its own data directory), so to continue a primary conversation the caller sets `HOME`/`USERPROFILE` from it itself; the primary's `env` carries no HOME-relocation variables. Pinning by `accountDir` with the primary's `home` pins the primary (normalized; case-insensitive on Windows).
-- `renew` within the TTL while running (no-slot leases too), then `release` **exactly once**: `ok: true` records a success, `ok: false` plus agy's error text settles the pool through the plugin's one-shot failure classification (TOS quarantine, quota cooldown, unsupported model, eligibility, signed out); omitting `ok` only releases.
-- Leases are in memory only: **a DSH host restart drops every lease**; clients re-acquire (re-read `.link-endpoint.json`). Expired leases are swept without settlement. Off Windows there is no shared slot, so taking it is a no-op; selection, TTL and settlement still work.
+Notes: overlay returned `env` as-is onto your agy process; `renew` within TTL, `release` **exactly once**; leases are in-memory only (a DSH restart drops them — re-acquire).
 
 ## ⚙️ Configuration
 
-Every key, environment variable, default and advanced option lives in **one place**: [CONFIGURATION.md](./CONFIGURATION.md). The README deliberately does not duplicate that table.
-
-Common entry points: `/plugin`, the Antigravity settings panel, `DSH_AGY_*` environment variables, and `~/.dsh/agy-link/runtime-overrides.json` (where the panel and `/agy` commands write).
+Every key, env var and default lives in **one place**: [CONFIGURATION.md](./CONFIGURATION.md). Entry points: `/plugin`, the Antigravity settings panel, `DSH_AGY_*`, and `~/.dsh/agy-link/runtime-overrides.json`.
 
 ## 🧩 How it works
 
-1. **Persistent `agy acp` default & CLI (`-p`) fallback**: By default each turn (including `isAux` background calls without `--settings`/`--json-schema`) reuses persistent `agy acp` stdio JSON-RPC processes (ephemeral aux sessions are closed via `session/close` on settlement; pre-stream failures fall back to `agy -p`). Opt back into `cli` per turn via Settings or `/agy transport cli`.
-2. **Per-account sandbox**: The primary account uses the system HOME/keychain; secondary accounts get an isolated HOME with their own `0600` OAuth credentials and `.bak` recovery. On Windows the credential slot is leased by identity (`parallelSameAccount`), so parallel sessions on the same account run concurrently.
-3. **CLI-first quota & pooled failover**: Quotas prefer `agy -p /usage` (`quotaViaCli: true`) with fallback to `v1internal:retrieveUserQuotaSummary`; 429/quota/region/auth failures are classified per model family — cooling down, rotating the pointer, or retrying on another account.
-4. **Aux routes**: Translation, title generation, and goal derivation ride the same pool through dedicated `purpose` paths without polluting a normal conversation binding.
+1. **Persistent `agy acp` default, CLI (`-p`) fallback:** each turn (incl. `isAux`) reuses `agy acp` stdio processes (ephemeral aux sessions `session/close` on settlement; pre-stream failures fall back to `agy -p`).
+2. **Per-account sandbox:** primary uses system HOME/keychain; secondaries get isolated HOME with `0600` credentials + `.bak`. Windows leases the slot by identity so same-account sessions run concurrently.
+3. **CLI-first quota & pooled failover:** `agy -p /usage` preferred, `retrieveUserQuotaSummary` fallback; 429/quota/region/auth classified per family — cool down, rotate, or retry.
+4. **Aux routes:** translation, titles, goal derivation ride the same pool via dedicated `purpose` without polluting a binding.
 
-## ❓ FAQ (short)
+## ❓ FAQ
 
-- **Proxy?** Export `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` before starting DSH, or set a per-account proxy in the console.
-- **A model rejects `--effort`?** The plugin learns the refusal, replays once without the flag, persists it to `effort-unsupported.json`, and hides unsupported levels for that model.
-- **Quotas not updating?** They poll hourly by default (`quotaPollIntervalMs`); press “Sync” on a card, click “Refresh Quota”, or run `/agy refresh-quota`.
-- **Windows console flash?** Set Windows Terminal's default terminal application to **Windows Console Host** and restart DSH; `suppressAgyAutoUpdate` also suppresses `agy`'s `--bg-updater` console chain on Windows by default.
+- **Proxy?** Export `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` before DSH, or set a per-account proxy.
+- **Model rejects `--effort`?** The plugin learns it, replays without the flag, persists to `effort-unsupported.json`, hides the level.
+- **Quotas stale?** Poll hourly (`quotaPollIntervalMs`); press "Sync" / "Refresh Quota" / `/agy refresh-quota`.
+- **Windows console flash?** Set Windows Terminal's default terminal to **Windows Console Host**; `suppressAgyAutoUpdate` also stops agy's `--bg-updater` chain.
 
 ## 📚 Documentation
 
-- [CONFIGURATION.md](./CONFIGURATION.md) — Complete configuration keys, environment variables, and defaults
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — Layering, provider pipeline, and the HTTP route modules
-- [AUTH.md](./AUTH.md) — PKCE OAuth, token import, keychain isolation, and redaction
-- [SECURITY-NOTES.md](./SECURITY-NOTES.md) — Threat model, route confinement, `/embed` CSP, and MCP bridge guardrails
-- [HEADLESS-PERMISSIONS.md](./HEADLESS-PERMISSIONS.md) — Least-privilege setup for `dsh headless`
-- [KNOWN-GAPS.md](./KNOWN-GAPS.md) — Platform limits, multimodal staging, and upstream behaviors
-- [DEVELOPMENT.md](./DEVELOPMENT.md) — Verification gates and refactoring guidelines
+- [CONFIGURATION.md](./CONFIGURATION.md) — keys, env vars, defaults
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — layering, provider pipeline, HTTP routes
+- [AUTH.md](./AUTH.md) — PKCE OAuth, token import, keychain isolation
+- [SECURITY-NOTES.md](./SECURITY-NOTES.md) — threat model, route confinement, CSP, MCP guardrails
+- [HEADLESS-PERMISSIONS.md](./HEADLESS-PERMISSIONS.md) — least-privilege `dsh headless`
+- [KNOWN-GAPS.md](./KNOWN-GAPS.md) — platform limits and upstream behaviors
+- [DEVELOPMENT.md](./DEVELOPMENT.md) — gates and refactoring rules
 
 ## ⚠️ Disclaimer
 
-This plugin only invokes the official, unmodified `agy` CLI installed locally. Use of this plugin is subject to Google Antigravity's Terms of Service.
+This plugin only invokes the official, unmodified `agy` CLI installed locally. Use is subject to Google Antigravity's Terms of Service.
 
 ## License
 

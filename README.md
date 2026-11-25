@@ -1,7 +1,7 @@
 <h1 align="center">🛰️ dsh-agy-link</h1>
 
 <p align="center">
-  <b>DeepSeek Harness × Google Antigravity</b> — 多账号智能池化与官方 agy CLI / ACP 双通道桥接 / Multi-Account Pool & Native agy CLI / ACP Bridge for DSH
+  <b>DeepSeek Harness × Google Antigravity</b> — 多账号池化与官方 agy CLI / ACP 双通道桥接
 </p>
 
 <p align="center">
@@ -13,231 +13,183 @@
 </p>
 
 <p align="center">
-  <b>🌐 语言：</b>
   <a href="./docs/README.en.md">English</a> ·
-  <a href="./docs/CONFIGURATION.md">完整配置文档</a> ·
-  <a href="./docs/ARCHITECTURE.md">架构说明</a> ·
-  <a href="./docs/SECURITY-NOTES.md">安全说明</a>
+  <a href="./docs/CONFIGURATION.md">配置</a> ·
+  <a href="./docs/ARCHITECTURE.md">架构</a> ·
+  <a href="./docs/SECURITY-NOTES.md">安全</a>
 </p>
 
 ---
 
 # 中文
 
-把 **Google Antigravity 模型接入 DeepSeek Harness（DSH）** —— 支持**按模型族独立路由的多账号智能池化**、**CLI 优先官方多 Bucket 配额监控（5 小时滚动 + 7 天周额度 + Argon 独立周池）**、**短进程 `-p` 与持久化 `agy acp` 双传输模式**、**浏览器免粘贴一键登录**、**多模态附件与 Generative UI 内嵌渲染**。由官方未修改的 `agy` CLI 驱动，完整支持流式输出、思考折叠、原生工具卡片与 1M 物理上下文精确计量。
+把 **Google Antigravity 模型接入 DeepSeek Harness（DSH）**：多账号智能池化、CLI 优先多 Bucket 配额监控、`agy acp` / 短进程 `-p` 双传输、浏览器一键登录、多模态附件与 Generative UI。由官方未修改的 `agy` CLI 驱动，支持流式输出、思考折叠、原生工具卡片与 1M 上下文计量。
 
 <p align="center">
-  <img src="./docs/assets/console.png" alt="Antigravity 4 标签管理控制台 - 账号池与多 Bucket 配额监控" width="760" />
+  <img src="./docs/assets/console.png" alt="Antigravity 控制台" width="760" />
 </p>
 <p align="center">
-  <img src="./docs/assets/model-picker.png" alt="DSH 模型选择器中的 Antigravity (agy 1.5.16) 模型列表" width="240" />
+  <img src="./docs/assets/model-picker.png" alt="模型选择器" width="240" />
   &nbsp;&nbsp;
-  <img src="./docs/assets/models-orchestrator.png" alt="模型与编排器（Orchestrator Planner/Executor）配置" width="520" />
+  <img src="./docs/assets/models-orchestrator.png" alt="模型与编排器" width="520" />
 </p>
 <p align="center">
-  <img src="./docs/assets/settings.png" alt="功能与界面标签页：/a* 快捷命令" width="380" />
+  <img src="./docs/assets/settings.png" alt="功能与界面" width="380" />
   &nbsp;&nbsp;
-</p>
-<p align="center">
-</p>
-<p align="center">
-  <img src="./docs/assets/token-usage.png" alt="原生上下文缓存与 Token 用量统计" width="330" />
-  &nbsp;&nbsp;
-  <img src="./docs/assets/context-metering.png" alt="1M 物理上下文负载精确计量" width="310" />
+  <img src="./docs/assets/token-usage.png" alt="Token 用量" width="330" />
 </p>
 
 ---
 
-> 🚨 **【国内用户核心前置：必须开启系统代理 / TUN 模式！】**
+> 🚨 **国内用户前置：需开启代理 / TUN 模式访问 Google**
 >
-> Google Antigravity 服务及 OAuth 登录需要直连 Google 海外服务器（`oauth2.googleapis.com`、`daily-cloudcode-pa.googleapis.com` 等）。
->
-> 1. **推荐方式（最稳妥）**：开启代理工具（Clash / Surge / v2rayA / Sing-box / Loon 等）的 **TUN 虚拟网卡模式（或系统代理全局接管）**，确保终端命令、后台 Node.js 进程及浏览器均能顺畅访问 Google 网络。
-> 2. **终端代理环境变量**：若终端未被代理自动接管，启动 DSH 或运行命令前请在终端中执行：
+> 1. 推荐开启代理工具（Clash / Surge / v2rayA 等）的 **TUN / 系统代理全局接管**，让终端、后台 Node 进程与浏览器都能访问 Google。
+> 2. 若终端未被接管，启动前执行：
 >    ```bash
->    export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ALL_PROXY=socks5://127.0.0.1:7890
+>    export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890
 >    ```
->    *(注：端口 `7890` 请替换为你本地代理软件的实际端口)*
-> 3. **GUI 单账号独立代理**：进入 DSH「设置 → 插件 → Antigravity」或点击顶部 `AGY` 徽标，点击卡片上的「🌐 代理」按钮，可为特定账号单独绑定专属代理 URL，实现多账号不同 IP 出口隔离。
+> 3. 多账号可各自绑定代理：卡片「🌐 代理」按钮。
 
 ---
 
-## 🌟 核心能力：多账号池化与风控防封
+## 核心能力
 
-拥有多个 Google Antigravity / Gemini 账号？**dsh-agy-link 让多账号管理自动化、可视化且风控友好**：
-
-- 👥 **多账号池化与独立沙箱**：在 DSH 内添加任意数量的 Google 账号，每个备用账号拥有独立 HOME 目录沙箱与 `0600` 原子化凭证（带 `.bak` 自愈备份）。Windows 上以「身份级引用计数租约」接管机器级 `gemini:antigravity` 凭据槽，**同一账号的多会话并行运行**，仅跨账号切换时短暂串行交接。
-- ⚡ **按模型族独立切换与冷却 (`Gemini` / `Argon` / `Claude` / `GPT-OSS`)**：控制台每个模型族独立显示「设为当前 / 当前使用」并支持独立冷却与清除冷却；某个模型族限流不影响其余模型族正常调度。
-- 🔄 **顺序耗尽 & 到期优先轮换**：支持 `sequential`（顺次耗尽）与 `round-robin`（轮询均衡）调度；触发 429 或额度耗尽时自动平滑接力至重置窗口最早到期的可用账号，对话不中断。
-- 📊 **CLI 优先多 Bucket 配额监控**：默认通过官方 `agy -p /usage` 采集配额（`quotaViaCli: true`），同时展示 **5 小时额度**、**周额度**（以及服务端上报时的 **Argon 独立周池**）与消耗节奏指示。
-- 🧠 **抖动安全鉴权与风控熔断**：基于 agy 运行日志的 `keyringAuth` 传输证据精准区分代理抖动（自动按 `NETWORK` 重试）与真实登出（粘性 `authRequired` 需二次确认），绝不误伤健康账号；遇 `TOS_VIOLATION` 立即隔离该账号并停止自动故障转移，防止连坐封号。
-- 🔑 **浏览器免粘贴 OAuth 与 Token 导入**：支持一键唤起系统浏览器回环自动捕获凭证（含手动回调粘贴兜底）及 `refresh_token` / Token JSON 直接导入。
-- 🌐 **独立账号代理**：每个账号可单独配置 HTTP(S) / SOCKS 代理，未配置时回退全局代理或自动探测系统代理。
+- 👥 **多账号池化**：每账号独立 HOME 沙箱、`0600` 原子凭证（`.bak` 自愈）。Windows 以引用计数租约接管全局凭据槽，同号并发、仅跨号切换时短暂串行。
+- ⚡ **按模型族独立切换与冷却**（Gemini / Argon / Claude / GPT-OSS）：一族限流不影响其余。
+- 🔄 **顺序 / 轮询调度**：429 或额度耗尽时自动接力到最早重置的可用账号，对话不中断。
+- 📊 **配额监控**：`agy -p /usage` 采集 5h 滚动、7d 周额度与 Argon 独立周池。
+- 🧠 **鉴权抖动区分与风控熔断**：日志证据区分网络抖动（按 `NETWORK` 重试）与真实登出；`TOS_VIOLATION` 立即隔离该账号并停止自动故障转移。
+- 🔑 **浏览器免粘贴 OAuth 与 Token 导入**。
+- 🌐 **独立账号代理**：per-account 优先，回退全局或系统探测。
 
 ---
 
-## ✨ 全功能特性一览
+## 特性一览
 
 | 能力 | 说明 |
 | --- | --- |
-| 🎨 **官方专属品牌与 4 标签控制台** | `assets/icon.svg` 矢量微标自适应深浅主题；顶部 `AGY · 别名` 徽标弹窗与「设置 → 插件 → Antigravity」共用 **账号与配额 / 模型与编排 / 功能与界面 / 运行** 4 标签控制台，窄屏自动切换全屏抽屉并支持触控重排 |
-| 📋 **按账号真实模型目录与编排器配置** | 同步 `agy 1.5.16`（含 `Gemini 4 Carbon` 与 `Orchestrator`）模型目录，提供允许清单勾选（`selectedModels`）、`poolWideCatalog` 并集路由、动态思考档自愈，以及 Orchestrator 上级 Planner / 下级 Executor 独立模型配置 |
-| 🛡️ **4 档权限模式、OS 沙箱与反向 MCP 桥** | 支持 `skip`、`auto`、`accept-edits`、`plan`（`/aplan` 单次只读守卫）与 `--sandbox`；`mcpBridge` 支持按当前会话与模型步骤调用 DSH 已开放的工具。详见[桥接配置](docs/CONFIGURATION.md) |
-| ⚡ **默认持久化 `agy acp` / CLI (`-p`) 双传输** | 默认开启持久化 `agy acp` stdio JSON-RPC 会话池（主回合与 `isAux` 辅助请求均复用，临时辅助会话自动 `session/close`，流前异常无缝回退 `cli`）；后台 `/usage` 配额刷新自动避让活跃对话回合 |
-| 🃏 **全链路工具卡片与 Generative UI** | 镜像 Terminal / Diff / Read / Search / MCP（含 `alwaysLoad` 直调拆解）卡片，并为 `swarm`、`run_workflow`、`schedule`、`manage_task`、子代理与 `image-generator` 提供专属卡片；支持 `<agent-embed>` 严格 CSP 沙箱微件 |
-| 🎬 **多模态附件与内联播放** | 通过 `--add-dir` 安全暂存 **图片、PDF、音频、视频** 附件（非图单文件默认上限 `mediaMaxFileBytes` 20 MiB）；聊天内支持图片全屏灯箱、视频预览、**内联 `<audio>` 播放器**、Mermaid 图表、交互决策芯片与上下文压缩卡 |
-| 📊 **原生上下文缓存与 1M 计量** | 无损映射 `cache_read_tokens`、思考 token 与 1M 物理上下文负载计量；超长上下文自动采用 8:2 掐头去尾并按阈值切为临时 `.md` 分页读取 |
-| ⚡ **全量 `/a*` 快捷斜杠命令族** | 一级命令 `/aplan`、`/agoal`、`/agrill`、`/aboost`、`/aswarm`、`/ateamwork`、`/aschedule`、`/abrowser`、`/acmd`（支持 ACP `available_commands_update` 清单查验与首行索引 0 保序直发主会话），元操作 `/acompact`、`/afork`、`/alearn` |
-| 🌐 **四语国际化与 UI 开关** | 原生接入 `zh` / `en` / `es` / `pt-BR` 四语言字典；提供 `showHeaderBadge` 与 `showTranslateAction` opt-out 可见性开关 |
+| 🎨 4 标签控制台 | 账号与配额 / 模型与编排 / 功能与界面 / 运行；窄屏抽屉 + 触控重排 |
+| 📋 模型目录与编排器 | 同步 agy 模型目录，允许清单（`selectedModels`）、并集路由（`poolWideCatalog`）、Planner / Executor 独立配置 |
+| 🛡️ 权限与桥接 | `skip` / `auto` / `accept-edits` / `plan`（`/aplan` 只读）与 `--sandbox`；`mcpBridge` 按会话步骤桥接 DSH 工具 |
+| ⚡ 双传输 | 默认持久 `agy acp` 会话池，流前异常回退 CLI；后台配额刷新避让活跃回合 |
+| 🃏 工具卡片与 Generative UI | 镜像 Terminal / Diff / Read / Search / MCP / 子代理等卡片；`<agent-embed>` CSP 沙箱微件 |
+| 🎬 多模态附件 | 图片 / PDF / 音频 / 视频暂存；灯箱、视频预览、内联音频、Mermaid、决策芯片 |
+| 📊 上下文与计量 | 无损 `cache_read_tokens` / 思考 token / 1M 上下文计量；超长上下文 8:2 掐头去尾并分页读取 |
+| ⚡ `/a*` 命令族 | `/aplan` `/agoal` `/agrill` `/aboost` `/aswarm` `/ateamwork` `/aschedule` `/abrowser` `/acmd`，元操作 `/acompact` `/afork` `/alearn` |
+| 🌐 四语 i18n | `zh` / `en` / `es` / `pt-BR`；`showHeaderBadge` 等可见性开关 |
 
 ---
 
-## 📋 前置要求
+## 前置要求
 
-| 前置项 | 说明 / 验证方式 |
+| 前置 | 验证 |
 | --- | --- |
-| **1. 系统网络代理** | **【必须开启】**（开启 TUN 模式或设置 `HTTPS_PROXY`，确保可连接 Google 服务） |
-| **2. DeepSeek Harness (DSH)** | 宿主客户端；`dsh --version` 验证 |
-| **3. Node.js ≥ 24** | DSH 运行环境；`node --version` 验证 |
-| **4. Google Antigravity `agy` CLI (≥ 1.5)** | 按 [Google 官方安装文档](https://antigravity.google/docs/cli/install) 安装；`agy --version` 验证 |
-
-> 💡 即使 `agy` 尚未登录，也可以直接安装插件；随后点击顶部 `AGY` 徽标或进入「设置 → 插件 → Antigravity」，点击「➕ 添加 Google 账号」即可直接在浏览器中完成登录。
+| 系统网络代理 | 开启 TUN / `HTTPS_PROXY`，可连 Google |
+| DeepSeek Harness | `dsh --version` |
+| Node.js ≥ 24 | `node --version` |
+| Antigravity `agy` CLI ≥ 1.5 | `agy --version` |
 
 ---
 
-## 🚀 快速上手
+## 快速上手
 
 ```bash
-# 0. 确保系统代理 / TUN 模式已开启（国内网络必需）：
-export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890
-
-# 1. 安装插件（npm 官方包，无需编译构建）：
+# 1. 安装插件
 dsh plugin --profile web add dsh-agy-link
 
-# 升级到最新版：
-# dsh plugin --profile web add dsh-agy-link@latest --registry https://registry.npmjs.org
+# 2. 启动 DSH Web GUI，输入框执行 /agy status 检查状态
 
-# 2. 启动 DSH Web GUI，在输入框检查状态：
-#   /agy status
+# 3. 添加账号：
+#    A) 顶部 "AGY (n)" 徽标 → "➕ 添加 Google 账号"，浏览器一键登录 / 导入 Token
+#    B) /agy auth 登录主账号；/agy pool 查 ID；/agy auth <id|别名|邮箱> 登录备用账号
 
-# 3. 登录与添加账号：
-#   方式 A：点击顶部导航栏的 "AGY (n)" 徽标 → "➕ 添加 Google 账号"，浏览器一键登录（或切换至「导入 Token」）；
-#   方式 B：执行 /agy auth 为主账号发起登录，/agy pool 查看账号 ID，
-#           再用 /agy auth <账号 ID|别名|邮箱> 重新登录备用账号，/agy auth-status 查询结果。
-
-# 4. 在 /model 选择器中挑选 Antigravity (agy CLI) 模型，立即开启对话！
+# 4. /model 选择 Antigravity 模型开始对话
 ```
 
-> 无头运行（`dsh headless`）的权限预设与目录白名单见 [docs/HEADLESS-PERMISSIONS.md](./docs/HEADLESS-PERMISSIONS.md)。
+无头运行的权限预设见 [docs/HEADLESS-PERMISSIONS.md](./docs/HEADLESS-PERMISSIONS.md)。
 
 ---
 
-## ⚙️ 配置说明
+## 配置
 
-所有配置键、环境变量、默认值与高级选项**只维护一份**：[docs/CONFIGURATION.md](./docs/CONFIGURATION.md)。
-
-常用入口：`/plugin`、设置面板（Antigravity）、`DSH_AGY_*` 环境变量，以及 `~/.dsh/agy-link/runtime-overrides.json`（面板与 `/agy` 热修改写入位置）。
+所有配置键、环境变量、默认值只维护一份：[docs/CONFIGURATION.md](./docs/CONFIGURATION.md)。常用入口：`/plugin`、设置面板、`DSH_AGY_*` 环境变量、`~/.dsh/agy-link/runtime-overrides.json`（面板与 `/agy` 热修改写入处）。
 
 ---
 
-## 🧩 常用 `/agy` 斜杠命令
+## 常用 `/agy` 命令
+
 | 分组 | 命令 |
 | --- | --- |
-| **状态与号池** | `/agy status` · `/agy pool` · `/agy add-account [alias]` · `/agy use <id> [family]` · `/agy enable-account` / `disable-account` / `remove-account` · `/agy refresh-quota` · `/agy clear-cooldown` · `/agy models` |
-| **认证登录** | `/agy auth [id\|alias\|email]` · `/agy auth-status` · `/agy auth-code <code>` · `/agy import <refresh_token_or_json> [alias]` |
-| **运行与安全** | `/agy mode <skip\|auto\|plan\|accept-edits>` · `/agy sandbox [on\|off]` · `/agy transport [cli\|acp\|status]` · `/agy agent [name\|off]` · `/agy settings [show\|<json_or_path>\|clear]` · `/agy effort <low\|medium\|high\|xhigh\|max\|default>` · `/agy workspace [path]` |
-| **目标与会话** | `/agy goal [status\|set\|edit\|pause\|resume\|complete\|clear]` · `/agy session [info\|clear]` |
-| **工作流桥接** | `/agy fork [list\|restore <id>\|<提示>]`（分支快照与回溯）· `/agy grill [主题]` / `/agy grill-me`（结构化需求对齐追问）· `/agy learn [--apply] [焦点]`（沉淀 Skill/Rule 到 `.agents/`）· `/agy compact [焦点]`（压缩摘要并重置绑定）· `/agy doctor` |
-| **顶级 `/a*` 快捷命令（直入会话）** | `/aplan [任务]`（单轮只读）· `/agoal <目标\|status\|...>`（立项并开跑）· `/agrill [主题]` · `/aboost [任务]` · `/aswarm <任务>` · `/ateamwork <任务>` · `/aschedule <指令>` · `/abrowser <任务>` · `/acmd </命令\|list>` |
-| **顶级 `/a*` 快捷命令（元操作）** | `/acompact [焦点]` · `/afork [...]` · `/alearn [--apply] [焦点]` |
+| 状态与号池 | `/agy status` · `pool` · `add-account [alias]` · `use <id> [family]` · `enable-account` / `disable-account` / `remove-account` · `refresh-quota` · `clear-cooldown` · `models` |
+| 认证 | `/agy auth [id\|alias\|email]` · `auth-status` · `auth-code <code>` · `import <token_or_json> [alias]` |
+| 运行与安全 | `/agy mode <skip\|auto\|plan\|accept-edits>` · `sandbox [on\|off]` · `transport [cli\|acp\|status]` · `agent [name\|off]` · `settings [show\|<json\|path>\|clear]` · `effort <…>` · `workspace [path]` |
+| 目标与会话 | `/agy goal [...]` · `session [info\|clear]` |
+| 工作流 | `/agy fork [...]` · `grill [主题]` · `learn [--apply] [焦点]` · `compact [焦点]` · `doctor` |
+| `/a*` 快捷（直入会话） | `/aplan` `/agoal` `/agrill` `/aboost` `/aswarm` `/ateamwork` `/aschedule` `/abrowser` `/acmd` |
+| `/a*` 元操作 | `/acompact` `/afork` `/alearn` |
 
 ---
 
-## 🔌 外部进程凭据租约 API（External credential lease）
+## 外部进程凭据租约 API
 
-Windows 上所有 `agy.exe` 共用同一个凭据管理器条目 `gemini:antigravity`，改 HOME/USERPROFILE 只换会话目录、不换身份。插件自己的运行会协调这个槽，但**自己启动官方 `agy` 的外部进程**（例如需要扛过 DSH 重启的长任务 runner）看不到插件内存里的计数：插件可能在它运行途中切换槽位，它也无法以池内备用账号身份运行。租约 API 让外部进程参与同一套协调——选号、取槽和失败结算复用插件自身运行的同一套逻辑。
+Windows 上所有 `agy.exe` 共用凭据条目 `gemini:antigravity`，改 HOME 只换会话目录、不换身份。外部进程（如需扛过 DSH 重启的 runner）看不到插件内存计数，故提供租约 API 参与同一套选号 / 取槽 / 结算。
 
-**两种租约**（与插件自己的 provider / ACP / 预热 / 配额路径一致）：
-- **隔离备用账号 + agy ≥ 1.5**：**不占凭据槽**（`slot: false`）。返回的 `env` 含 `SSH_CONNECTION`，agy 因此只读该账号自己的 token 文件，可与其它账号无锁并行。发放前插件会把这个 token 文件刷新进 CLI 安全窗口（与 CLI 配额读取同一逻辑：带着快过期的 token 启动的 agy 可能回退到交互式浏览器登录）。agy 版本未知时先探测再决定；探测失败按占槽处理（对任何版本都安全）。
-- **主账号，或 agy < 1.5 的隔离账号**：在租约期间持有凭据槽（`slot: true`，同号并行快路径 / 切号交接照旧）。
+- **隔离备用账号 + agy ≥ 1.5**：不占槽（`slot: false`），返回 `env` 含 `SSH_CONNECTION`，agy 只读该账号 token，可与其它账号无锁并行。发放前插件把 token 刷新进 CLI 安全窗口；版本未知时先探测，探测失败按占槽处理。
+- **主账号 / agy < 1.5 的隔离账号**：持有凭据槽（`slot: true`）。
 
-**发现端点**：插件拿到 web 端口后原子写入 `<号池目录>/.link-endpoint.json`（号池目录即 `pool.json` 所在目录，默认 `~/.dsh/agy-accounts`，设了 `DSH_STATE_DIR` 时为 `$DSH_STATE_DIR/agy-accounts`）：`{"url":"http://127.0.0.1:<port>/plugins/agy-link","pid":<pid>,"startedAt":<epoch ms>,"token":"<64 位十六进制>"}`，文件权限 `0600`（POSIX 上写完会校验属主与权限，不符即删除文件、接口不可用；Windows 继承号池目录的 ACL）。`token` 每次插件启动重新生成，插件卸载时仅当文件仍是本进程写的才删除。
+**发现端点**：`<号池目录>/.link-endpoint.json`（默认 `~/.dsh/agy-accounts`），含 `url / pid / startedAt / token`，权限 `0600`，token 每次启动重生成。
 
-**鉴权**：所有 `/lease*` 请求都必须带 `Authorization: Bearer <token>`（取自同一次读到的 `.link-endpoint.json`），缺失或不符一律 `401 unauthorized`，且在来源与方法检查之前判定；拿不到发现文件就无法租号。所有请求/响应都是 JSON；错误统一为 `{ "ok": false, "code": "...", "error": "..." }`。带非本机 `Origin` 的浏览器请求一律 `403 cross_origin`。
+**鉴权**：所有 `/lease*` 请求需 `Authorization: Bearer <token>`，缺失或不符 `401`；带非本机 `Origin` 的浏览器请求 `403`。
 
-| 端点 | 请求体 | 成功响应 | 错误 |
-| --- | --- | --- | --- |
-| `POST /lease/acquire` | `holder`（必填，≤200 字符）、`model?`、`accountId?` / `accountDir?`（**钉住**账号：续接对话必须回到拥有它的账号）、`ttlMs?`（默认 120000，夹到 15000–600000）、`waitMs?`（等槽上限，默认同 one-shot：`dispatchTimeoutMinutes × 60000`，未配置时 60000，最大 1 小时） | `{ ok, leaseId, ttlMs, expiresAt, slot, env, account: { id, email, alias, primary, isolated, home, proxyUrl } }` | `400 invalid_json/invalid_request` · `404 account_not_found` · `409 account_unavailable`（钉住的账号已停用 / 需重登 / 槽拒绝交接 / token 无法刷新进安全窗口）· `503 no_account`（附 `retryAfterMs`，已知时）· `504 slot_timeout` · `502 slot_error`（如主账号身份暂时无法在线核验，可重试） |
-| `POST /lease/renew` | `leaseId`、`ttlMs?` | `{ ok, expiresAt }` | `404 lease_not_found`（未知或已过期） |
-| `POST /lease/release` | `leaseId`、`ok?`、`error?`（截断到 8 KiB）、`model?` | `{ ok, outcome }`，`outcome ∈ success / quota / tos / model_unsupported / eligibility / auth / other / none` | `404 lease_not_found` |
-| `GET /lease` | — | `{ leases: [{ leaseId, holder, accountId, email, acquiredAt, expiresAt, slot }] }`（诊断用） | — |
+| 端点 | 要点 |
+| --- | --- |
+| `POST /lease/acquire` | `holder`（必填）、`model?`、`accountId?` / `accountDir?`（钉住账号）、`ttlMs?`（默认 120000，夹 15000–600000）、`waitMs?`。返回 `{ ok, leaseId, ttlMs, expiresAt, slot, env, account }` |
+| `POST /lease/renew` | `leaseId`、`ttlMs?` |
+| `POST /lease/release` | `leaseId`、`ok?`、`error?`、`model?`；`ok:true` 记成功，`ok:false` 按 one-shot 失败分类结算，省略只释放 |
+| `GET /lease` | 诊断用，列出当前租约 |
 
-使用要点：
-- **钉住账号**时只检查「存在、启用、未标记需重登」，不看冷却；不钉住时按插件自身的调度规则选号，槽拒绝交接（按 one-shot 规则结算）或 token 无法就绪时换下一个账号（同一账号不会试两次）。
-- 启动 agy 时把返回的 `env` **原样叠加**到自己的进程环境上：隔离账号的 `HOME`/`USERPROFILE`/`HOMEDRIVE`/`HOMEPATH`/`GEMINI_CLI_HOME`/`ANTIGRAVITY_*`/`SSH_CONNECTION`（与插件 `isolatedHomeEnv` 相同）、代理变量（Windows 上只保留大写一种写法）、含本机回环地址的 `NO_PROXY`，以及 `AGY_CLI_*`/`BROWSER`/`CI` 静默无头开关。`env` 不包含宿主自身的其它环境变量。`account.proxyUrl` 照旧返回。
-- `account.home` 是插件自己运行该账号时用的 HOME：隔离账号是它的独立目录，**主账号是插件宿主的用户目录（`os.homedir()`）**。主账号的 agy 对话就存在这里（例如 DSH-ASA 启动器会把宿主的 USERPROFILE 指到自己的数据目录），所以要续接主账号的对话时，调用方应据此自行设置 `HOME`/`USERPROFILE`；主账号的 `env` 里不含任何 HOME 重定位变量。用 `accountDir` 钉住时，传入主账号的 `home` 也能钉住主账号（规范化比较，Windows 不区分大小写）。
-- 运行期间按 TTL 定期 `renew`（不占槽的租约同样需要）；结束后**恰好一次** `release`：`ok: true` 记一次成功，`ok: false` 加 agy 的错误文本按插件 one-shot 失败分类结算（TOS 隔离、额度冷却、模型不支持、地区资格、登出），省略 `ok` 只释放不结算。
-- 租约只存在内存：**DSH 宿主重启会丢失全部租约**，客户端应重新 `acquire`（读新的 `.link-endpoint.json`）。过期未续的租约由后台清扫释放且不结算。非 Windows 上没有共享槽，取槽是空操作，但选号、TTL 与结算照常工作。
+使用要点：启动 agy 时把返回 `env` 原样叠加到进程环境；按 TTL 定期 `renew`，结束**恰好一次** `release`。租约只在内存，宿主重启即全部失效，客户端需重新 `acquire`。
 
 ---
 
-## 🧩 架构与工作原理
+## 架构
 
-> 分层、依赖方向与各模块职责见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；开发与重构门禁见 [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)。
+分层与依赖方向见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；开发门禁见 [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)。
 
-1. **ACP (`agy acp`) 与 CLI (`-p`) 双传输**：默认复用持久化 `agy acp` stdio JSON-RPC 会话池（主回合与 `isAux` 辅助请求均可复用，非持久化辅助会话结束后主动 `session/close` 回收），流前异常自动平滑回退 CLI；需要 `--settings` 编排或 `--json-schema` 时自动走 `agy -p`。
-2. **多账号沙箱与凭据租约**：主账号沿用系统 HOME / 钥匙串，备用账号在 `~/.dsh/agy-accounts/<id>` 独立隔离（写 `0600` + `.bak` 自动恢复）。Windows 上通过身份级引用计数租约接管全局 `gemini:antigravity` 凭据槽，实现同账号并发与安全跨号交接。
-3. **CLI 优先多 Bucket 配额汇总**：默认通过 `agy -p /usage`（`quotaViaCli: true`）采集配额，必要时回退官方 `v1internal:retrieveUserQuotaSummary` 消费级端点，精准追踪 5h 滚动额度、7d 周额度与 Argon 独立周池。
-4. **会话级故障转移与自愈**：429、额度耗尽、地区限制与鉴权异常按模型族独立分类与冷却，并基于运行日志区分网络抖动与真实登出。
-5. **辅助通道隔离**：标题生成与目标推导通过专用 `purpose` 走辅助通道，共享号池与故障转移但不污染主会话绑定。
-
----
-
-## ❓ 常见问题排查 (FAQ)
-
-### 升级到 DSH 0.2.2 后桌面端启动失败（`web boot: 1 entry did not activate` / `locale "es" is already registered`）？
-**答：这是 0.4.99 及更早版本的兼容性问题，已在 0.5.5 修复，当前 0.6.x 不受影响。**
-新版客户端在注册 `es` / `pt-BR` 语言前会检查宿主语言目录并仅清理自身注册项；升级至 `>= 0.5.5` 即可正常共存。
-
-### Windows 平台开始对话时为什么会短暂闪一下黑色命令行窗口（黑框）？
-**答：这是 Windows 11 默认终端（Windows Terminal）委托拦截控制台子进程句柄所致，完全良性。**
-打开 **Windows 终端**「设置 → 启动」，将 **默认终端应用程序** 改为 **「Windows 控制台主机 (Windows Console Host)」**，保存后**完全退出并重启 DSH** 即可彻底消除。
-
-### `agy` 自己的自动更新子进程也会闪窗？
-`agy >= 1.4.2` 会在距上次更新检查满 15 分钟后派生可见控制台检查链。插件默认在 Windows 上启用 `suppressAgyAutoUpdate`（环境变量 `DSH_AGY_SUPPRESS_AUTOUPDATE`），每次 spawn 前刷新对应 `agy home` 的 `last_check.timestamp`，避免派生可见窗口链；手动运行 `agy update` 完全不受影响。
-
-### 某个模型选定思考强度后提示 `--effort is not supported`？
-插件内置思考强度自适应学习：遇到模型拒绝 `--effort` 时自动无参数原样重放确保本轮完成，并将该模型记入 `~/.dsh/agy-link/effort-unsupported.json`，后续自动隐藏该模型的档位选择。
-
-### 配额进度条未及时更新？
-后台默认每小时轮询一次（`quotaPollIntervalMs`）。如需立即刷新，点击控制台卡片「同步」或右上角「刷新额度」，或在输入框执行 `/agy refresh-quota`。
+1. **双传输**：默认持久 `agy acp` 会话池，流前异常回退 CLI；需 `--settings` / `--json-schema` 时走 `-p`。
+2. **多账号沙箱与凭据租约**：主账号用系统 HOME / 钥匙串，备用账号隔离于 `~/.dsh/agy-accounts/<id>`；Windows 以引用计数租约接管全局槽。
+3. **配额汇总**：`agy -p /usage` 优先，必要时回退 `retrieveUserQuotaSummary`，追踪 5h / 7d / Argon 周池。
+4. **故障转移与自愈**：按模型族独立分类与冷却 429 / 额度耗尽 / 地区限制 / 鉴权异常。
+5. **辅助通道隔离**：标题生成与目标推导走专用 `purpose`，共享号池但不污染主会话绑定。
 
 ---
 
-## 📚 相关文档
+## FAQ
 
-- [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) — 全量配置键、环境变量与默认值参考（唯一真相源）
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 分层架构、Provider 流水线与 40 个 HTTP 路由模块
-- [docs/AUTH.md](./docs/AUTH.md) — PKCE OAuth、Token 导入、平台钥匙串隔离与脱敏机制
-- [docs/SECURITY-NOTES.md](./docs/SECURITY-NOTES.md) — 威胁模型、路由限域、`/embed` CSP 与 MCP 桥接边界
-- [docs/HEADLESS-PERMISSIONS.md](./docs/HEADLESS-PERMISSIONS.md) — `dsh headless` 最小权限配置指南
-- [docs/KNOWN-GAPS.md](./docs/KNOWN-GAPS.md) — 平台限制、多模态暂存与上游行为记录
-- [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) — 门禁命令与开发重构规范
+- **Windows 对话时闪现黑框**：Windows Terminal 委托拦截子进程句柄所致，良性。将默认终端改为「Windows 控制台主机」并重启 DSH 即可。
+- **`agy` 自动更新子进程闪窗**：Windows 默认启用 `suppressAgyAutoUpdate`，spawn 前刷新 `last_check.timestamp`，不派生子进程；`agy update` 不受影响。
+- **`--effort is not supported`**：插件自动无参数重放完成本轮，并记入 `effort-unsupported.json` 隐藏该档位。
+- **配额未及时更新**：默认每小时轮询（`quotaPollIntervalMs`）；点「同步」或 `/agy refresh-quota` 立即刷新。
 
 ---
 
-## 🙏 参考与致谢
+## 相关文档
 
-- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) — Antigravity 公开 OAuth 客户端与回环回调登录范式
-- [opencode-antigravity-auth](https://github.com/NoeFabris/opencode-antigravity-auth) — opencode 平台的多账号实践
-- [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — Antigravity 端点分发与配额语义
-- [pi-mono](https://github.com/badlogic/pi-mono) — Antigravity 轮换与桥接设计参考
+- [CONFIGURATION.md](./docs/CONFIGURATION.md) — 配置键与环境变量
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 分层架构与 Provider 流水线
+- [AUTH.md](./docs/AUTH.md) — OAuth、Token 导入与钥匙串隔离
+- [SECURITY-NOTES.md](./docs/SECURITY-NOTES.md) — 威胁模型与安全边界
+- [HEADLESS-PERMISSIONS.md](./docs/HEADLESS-PERMISSIONS.md) — `dsh headless` 最小权限
+- [KNOWN-GAPS.md](./docs/KNOWN-GAPS.md) — 平台限制与上游行为
+- [DEVELOPMENT.md](./docs/DEVELOPMENT.md) — 门禁与重构规范
 
----
+## 致谢
 
-## ⚠️ 免责声明
+CLIProxyAPI · opencode-antigravity-auth · OmniRoute · pi-mono
 
-本插件仅通过调用用户本地官方安装的未修改 `agy` CLI 进程进行交互。使用本插件需遵循 Google Antigravity 服务条款。
+## 免责声明
+
+本插件仅调用用户本地官方安装的未修改 `agy` CLI。使用需遵循 Google Antigravity 服务条款。
 
 ## 许可证
 

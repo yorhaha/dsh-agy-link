@@ -17,7 +17,7 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | `sandbox` | `DSH_AGY_SANDBOX` | `false` | Run `agy` with OS terminal sandboxing (`--sandbox`) |
 | `agent` | `DSH_AGY_AGENT` | `''` (agy default) | Default custom Markdown agent name (`--agent`) |
 | `agySettings` | `DSH_AGY_SETTINGS` | `''` | Inline JSON object or file path passed to `agy --settings` |
-| `transport` | `DSH_AGY_TRANSPORT` | `acp` | `acp` (default) keeps one persistent `agy acp` process per account and session, so background commands, subagents and timers keep running after a turn ends and report back on their own, and per-call usage/cache metrics stay accurate. `cli` runs one-shot `agy -p` per turn (background work dies with the process); switch with `/agy config transport cli`, `/agy transport cli` or the settings page. A pre-stream ACP failure and a no-output ACP turn fall back to `cli` automatically |
+| `transport` | `DSH_AGY_TRANSPORT` | `acp` | `acp` (default): one persistent `agy acp` process per account+session — background commands, subagents and timers keep running after a turn and report back; accurate per-call usage/cache. `cli`: one-shot `agy -p` per turn (background work dies with the process). A pre-stream ACP failure falls back to `cli`. Switch via `/agy transport cli` or Settings. |
 | `workspaceRoot` | `DSH_AGY_WORKSPACE_ROOT` | `''` (session cwd) | Workspace root passed to agy |
 
 ## Models and effort
@@ -25,10 +25,10 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | Key | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `defaultModel` | `DSH_AGY_DEFAULT_MODEL` | `''` (agy default) | Initial model slug |
-| `defaultEffort` | `DSH_AGY_DEFAULT_EFFORT` | `high` | Initial thinking effort; the settings row and the session menu offer exactly the levels the live catalog advertises (`low` / `medium` / `high` / `xhigh` (Extra) / `max`), plus `auto` |
-| `poolWideCatalog` | `DSH_AGY_POOL_WIDE_CATALOG` | `false` | Show the union of models supported by **all** enabled accounts in the picker instead of only the active account's models; `selectAccount(family, model)` then routes automatically to an account that can serve the chosen model (issue #107) |
-| `hiddenModels` | `DSH_AGY_HIDDEN_MODELS` | `[]` | Slugs hidden from the model picker (comma separated). Applied **after** `selectedModels`, so it always wins |
-| `selectedModels` | `DSH_AGY_SELECTED_MODELS` | `[]` | Allow-list: only these slugs appear in the model picker (comma separated). Empty means "no restriction" — every model shows. Written by the tick-list in the settings page; a deselected model still resolves for sessions already using it (issue #131) |
+| `defaultEffort` | `DSH_AGY_DEFAULT_EFFORT` | `high` | Initial thinking effort; the menu offers exactly the levels the live catalog advertises (`low`/`medium`/`high`/`xhigh`/`max`) plus `auto`. |
+| `poolWideCatalog` | `DSH_AGY_POOL_WIDE_CATALOG` | `false` | Show the union of models from **all** enabled accounts instead of only the active account's; `selectAccount(family, model)` routes to an account that can serve it. |
+| `hiddenModels` | `DSH_AGY_HIDDEN_MODELS` | `[]` | Slugs hidden from the picker (comma separated); applied after `selectedModels`, so it wins. |
+| `selectedModels` | `DSH_AGY_SELECTED_MODELS` | `[]` | Allow-list of slugs in the picker (comma separated; empty = all). Written by the Settings tick-list; a deselected model still resolves for sessions already using it. |
 | `fallbackModels` | `—` | agy 1.5.7 lineup: Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Argon), Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B (Medium) | Catalog shown before `agy models` succeeds (signed out or offline); mirrors `agy models` exactly, no retired entries |
 | `autoFallbackModel` | `DSH_AGY_AUTO_FALLBACK_MODEL` | `false` | Retry on a fallback model when the selected one cannot run |
 | `modelsCacheTtlMs` | `—` | `300000` | Model catalog cache lifetime |
@@ -40,9 +40,9 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | `timeoutMs` | `DSH_AGY_TIMEOUT_MS` | `600000` | Activity watchdog timeout per turn |
 | `maxTurnMinutes` | `DSH_AGY_MAX_TURN_MINUTES` | `0` | Hard wall-clock cap per turn (0 = unlimited); bounds a self-driving turn that never goes idle |
 | `longToolIdleMinutes` | `DSH_AGY_LONG_TOOL_IDLE_MINUTES` | `240` | Idle budget while a tool step is open; `0` keeps `timeoutMs` so wedged tools fail fast |
-| `idleGraceMinutes` | `DSH_AGY_IDLE_GRACE_MINUTES` | `10` | Grace before the `root agent idle; waiting for N background task(s)` reaper kills the agy tree; `0` disables the reaper (the activity watchdog and `maxTurnMinutes` still bound the turn) |
-| `reapOrphanMcp` | `DSH_AGY_REAP_ORPHAN_MCP` | `true` | Reap MCP servers orphaned by short-lived agy probes. agy forks every server in the MCP registry for `models` / `/usage` / `--version` and does not kill them on exit, so a pool of accounts accumulates them run after run. Only processes whose parent is already dead and that have run for more than five minutes are killed; an unparseable start time never triggers a kill. The sweep runs in the deferred maintenance pass, never on the plugin-load path |
-| `backgroundWakeup` | `DSH_AGY_BACKGROUND_WAKEUP` | `false` | Opt-in. When on, idle DSH sessions wake across turns when a one-shot `schedule` timer expires, a detached task/subagent finishes, or a persistent ACP session emits a background completion update. Enable with the settings switch, `/agy config wakeup on`, or `DSH_AGY_BACKGROUND_WAKEUP=1` |
+| `idleGraceMinutes` | `DSH_AGY_IDLE_GRACE_MINUTES` | `10` | Grace before the idle-background reaper kills the agy tree; `0` disables it (watchdog and `maxTurnMinutes` still bound the turn). |
+| `reapOrphanMcp` | `DSH_AGY_REAP_ORPHAN_MCP` | `true` | Reap MCP servers orphaned by short-lived agy probes (`models`/`/usage`/`--version` fork servers agy doesn't kill on exit). Only parent-dead, >5-min-old processes are killed; runs in the deferred maintenance pass. |
+| `backgroundWakeup` | `DSH_AGY_BACKGROUND_WAKEUP` | `false` | Opt-in. Wake idle sessions across turns when a `schedule` timer expires, a detached task/subagent finishes, or an ACP session emits a background completion. Enable via Settings or `DSH_AGY_BACKGROUND_WAKEUP=1`. |
 | `backgroundWakeupTtlMinutes` | `DSH_AGY_BACKGROUND_WAKEUP_TTL_MINUTES` | `30` | Max window (minutes, 1–240) to keep post-turn background watches and one-shot `schedule` timers alive |
 | `backgroundWakeupMaxPerSession` | `DSH_AGY_BACKGROUND_WAKEUP_MAX_PER_SESSION` | `12` | Max automatic background wakeups per session between human turns (1–100) |
 | `dispatchTimeoutMinutes` | `—` | `15` | Cap on waiting for the Windows credential slot before backing off and retrying; `0` waits indefinitely |
@@ -81,7 +81,7 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | Key | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `askTool` | `—` | `false` | Expose the `agy_ask` delegation tool |
-| `mcpBridge` | `DSH_AGY_MCP_BRIDGE` | `false` | Expose the current DSH model step’s tools to agy. Requires a host that supplies the 0.2.2 step tool set. Without a bound step the bridge advertises no tools. |
+| `mcpBridge` | `DSH_AGY_MCP_BRIDGE` | `false` | Expose the current DSH step’s tools to agy (requires a step-tool-set host; without a bound step no tools are advertised). |
 | `mcpConfigScope` | `DSH_AGY_MCP_CONFIG_SCOPE` | `global` | `global` / `workspace` / `both` |
 | `mcpConfigPath` | `DSH_AGY_MCP_CONFIG_PATH` | `''` | Explicit agy MCP config path |
 | `mcpToolAllowlist` | `DSH_AGY_MCP_TOOL_ALLOWLIST` | `''` | Only expose these MCP tools (comma separated) |
@@ -92,7 +92,7 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | --- | --- | --- | --- |
 | `proxyUrl` | `DSH_AGY_PROXY_URL` | `''` | Global proxy for agy processes; per-account proxies take precedence |
 | `quotaPollIntervalMs` | `DSH_AGY_QUOTA_POLL_INTERVAL_MS` | `3600000` | Background quota poll interval (minimum 60 s) |
-| `quotaViaCli` | `DSH_AGY_QUOTA_VIA_CLI` | `true` | Prefer the agy CLI path for quota queries. The CLI is only spawned once the account's access token has at least two minutes of life left (refreshed up front when it does not); otherwise that round falls back to the REST quota endpoint |
+| `quotaViaCli` | `DSH_AGY_QUOTA_VIA_CLI` | `true` | Prefer the CLI for quota queries. The CLI is only spawned once the token has ≥2 min of life left (refreshed up front otherwise); else that round uses the REST quota endpoint. |
 | `suppressAgyAutoUpdate` | `DSH_AGY_SUPPRESS_AUTOUPDATE` | `true` on Windows, `false` elsewhere | Refresh agy's update-check timestamp before every spawn to stop the `--bg-updater` console flash chain |
 
 ## Orchestrator & security options
@@ -110,9 +110,9 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 
 | Key | Environment | Default | Description |
 | --- | --- | --- | --- |
-| `showHeaderBadge` | `DSH_AGY_SHOW_HEADER_BADGE` | `true` | Show the AGY status badge in the conversation header toolbar; `false` hides it (the console dialog stays reachable from Settings). On viewports ≤ 680 px the badge label is hidden automatically, leaving the status dot |
+| `showHeaderBadge` | `DSH_AGY_SHOW_HEADER_BADGE` | `true` | Show the AGY status badge in the header; `false` hides it (console still reachable from Settings). ≤680 px hides the label, keeps the dot. |
 
-The switch is opt-out (only an explicit `false` hides anything), settable from **Settings → Antigravity**, and take effect on the next 3 s status poll without a reload. See `.spec/ui-visibility.md`.
+Opt-out (only an explicit `false` hides); changes apply on the next 3 s status poll without reload.
 
 ## Diagnostics
 

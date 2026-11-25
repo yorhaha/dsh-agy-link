@@ -1,241 +1,57 @@
 # Known gaps
 
-Deliberate v1 boundaries and upstream-behavior notes.
+Deliberate boundaries and upstream-behavior notes.
 
 ## Platform limits
 
-- **Windows: pool credential isolation is implemented by handing the shared
-  slot over (issue #45)** — agy on Windows resolves its Google credential from
-  ONE process-global Credential Manager slot `gemini:antigravity`
-  (go-keyring); `HOME`/`USERPROFILE`/`GEMINI_CLI_HOME` move files only. Rather
-  than pretending the pool is isolated, the plugin owns the slot: the primary
-  credential is kept in a durable, identity-verified store
-  (`agy-accounts/.primary-credential.json`), and every run acquires the slot
-  through `acquireCredentialSlot`.
-  - **Same-identity runs are parallel (v0.4.60).** The installed identity is
-    reference-counted: the first run on an account performs the handoff and
-    keeps the mutex, later runs on the same grant join as fast leases (each
-    verifies the slot still carries that grant), and runs already QUEUED for
-    the slot join too — they poll every 100ms and take a lease as soon as their
-    own grant is installed, so a backlog drains in parallel. The LAST holder
-    persists a rotated access token and restores the primary. Only identity
-    SWITCHES serialize — a switcher registers its claim BEFORE queueing, and
-    new same-identity joins are refused while a different identity waits.
-  - **The slot is held only until agy has READ it (v0.4.68).** Measured on agy
-    1.4.3 with a live 14-minute run: print mode resolves its credential once at
-    startup (`printmode.go:403 "not authenticated, trying silent auth"` →
-    `:405 "silent auth succeeded"` at +3.2s) and performs zero further
-    token/auth work for the rest of the run. The adapter therefore arms
-    `armSlotHandoff` before the spawn and releases the lease on the child's
-    FIRST output line (45s ceiling for a slow startup) instead of holding the
-    machine-wide slot for the whole run. Different accounts now overlap: the
-    2026-10-22 design parked two sessions for 15 minutes behind another
-    project's 14-minute run; the exclusive window is now a few seconds.
-    Residual exposure (unchanged in kind, now diagnosable): a mid-run 401 that
-    forces a re-auth would read whatever identity is installed at that moment —
-    the hand-off logs when it fires so that case is visible instead of silent.
-  - `SlotUnavailableError` aborts a run instead of letting it silently spend
-    the wrong account when the primary cannot be verified.
-  - Cross-process coordination uses an atomic lockfile (`acquireCrossProcessSlotLock`) alongside the in-process mutex so concurrent local hosts (`dsh web` and a second `dsh web`) serialize slot transitions cleanly.
+- **Windows uses a shared credential slot.** agy resolves its Google credential from one machine-wide Credential Manager entry (`gemini:antigravity`); `HOME`/`USERPROFILE` move files only. The plugin owns the slot: the primary credential is kept in a durable, fingerprint-verified store (`agy-accounts/.primary-credential.json`) and every run enters through `acquireCredentialSlot`.
+  - Same-identity runs are parallel (reference-counted); only **identity switches** serialize.
+  - The slot is held only until agy has read it (print mode resolves its credential once at startup), so different accounts overlap after a few seconds instead of for the whole run.
+  - A primary that cannot be verified aborts the run instead of spending the wrong account.
+  - Cross-process coordination uses an atomic lockfile alongside the in-process mutex.
+
+- **Per-process credential injection is unavailable in current agy.** The per-HOME token file is a read-path fallback only (the keyring wins when present); there is no `--api-key`/`--credential*` flag; `JETSKI_OAUTH_TOKEN` and the documented env routes are different auth products. A true fix must come from agy (namespace the keyring by HOME, or accept a `--credential-file`). Until then the reference-counted slot is the strongest isolation available.
 
 ## ACP transport (default)
 
-`agy acp` is a long-lived JSON-RPC process per account and session, and it is
-the default transport: `transport` resolves to `acp` unless you opt back into
-the one-shot CLI with `/agy config transport cli`, `/agy transport cli`,
-`DSH_AGY_TRANSPORT=cli` or Settings → Runtime controls. A pre-stream ACP
-failure (or an ACP turn that produces nothing) still falls back to `cli` for
-that turn. ACP is what makes background work survive a turn: a `run_command`,
-an `invoke_subagent` or a
-`schedule` timer keeps running inside the process after `session/prompt` returns
-and pushes its result later as `tool_call_update` / `agent_message_chunk`.
+`agy acp` is a long-lived JSON-RPC process per account+session and the default transport; opt back into one-shot CLI with `/agy transport cli` or `DSH_AGY_TRANSPORT=cli`. A pre-stream ACP failure falls back to `cli` for that turn. ACP is what makes background work survive a turn (`run_command`, `invoke_subagent`, `schedule` keep running and push results later).
 
-- **Only `pending` / `in_progress` at turn end counts as background work.** ACP
-  never reports `RUNNING`; the CLI's flag does not exist here. A tool call whose
-  final update already arrived (`completed` / `failed` / `cancelled`) is NOT
-  reported, so a finished job cannot produce a spurious wakeup.
-- **Autonomous reports are presented, not re-run (scheme A).** agy's own
-  post-turn text is merged over a short silence window (700 ms after the last
-  chunk, 350 ms after `usage_update`) and written into the transcript as a
-  plugin record, which the chat renders as a card. No extra turn, no extra
-  quota. Two exceptions still wake the session with a real turn: an armed Goal
-  (it must advance) and a silent completion with no text at all.
-- **A session that cannot be restored is rebuilt, never silently emptied.**
-  `session/load` succeeds even for an id that does not exist, so a restore only
-  counts when the server actually replayed events or reported cached reads.
-  Otherwise the binding is dropped, the full history digest is delivered to a
-  fresh session, and the transcript shows a reset notice.
-- **A turn with no output is a failure, not an empty success.** The per-process
-  `--log-file` slice is classified (network / auth) before falling back to
-  `cli -p`, so a dead proxy can no longer look like a completed turn.
-- **One credential slot, three guards.** The slot document's `id_token_email`
-  is checked before a fast path and after every install; the identity agy
-  prints in its own log (`applyAuthResult: email=...`) is verified after the
-  process starts, with one reinstall-and-retry; and the primary credential is
-  re-asserted once a drained secondary process exits. A process that still
-  reports the wrong account is refused instead of billing it.
+- Only `pending`/`in_progress` at turn end counts as background work; a finished call does not wake.
+- agy's own post-turn text is presented as a card over a short silence window, not re-run (two exceptions wake with a real turn: an armed Goal, and a silent completion with no text).
+- An unrestorable session is rebuilt with a full history digest and a reset notice, never silently emptied.
+- A turn with no output is a failure, not an empty success.
+- One credential slot, three guards: pre/post-install `id_token_email` check, agy-log identity verification after start (one reinstall-retry), and primary re-assertion on secondary exit.
 
-## Credential injection: what agy actually supports (verified 2026-10-17)
+## Multimodal staging
 
-The clean fix for the Windows boundary above would be per-process credential
-injection (each account's HOME carries its own credential, no global slot, no
-mutex, identical on macOS/Linux/Windows). It is NOT available in the current
-agy build — measured, not assumed:
+agy print mode has no inline binary flag. Attachments (images, PDF, audio, video) are staged into `mediaDir` (TTL-swept) and referenced by absolute path with `--add-dir` so agy inspects them with its own tools.
 
-- **The per-HOME token file is a FALLBACK, not the source (re-measured
-  2026-10-23).** With an entry in the keyring the file is ignored: a fresh
-  isolated HOME containing a deliberately bogus
-  `.gemini/antigravity-cli/antigravity-oauth-token` still authenticated from the
-  machine keyring and completed a prompt (exit 0, `OK`), and the bogus file was
-  left untouched.
-  - **But with the keyring entry ABSENT, agy DOES read the per-HOME file.**
-    Probe: delete `gemini:antigravity`, isolate a HOME whose token file holds
-    `ya29.BOGUS_FROM_HOME_FILE`, run a prompt → `Eligibility check failed:
-    UNAUTHENTICATED (code 401)`. The bogus file was the only credential in play,
-    so the load path really did come from the file.
-  - That is *not* enough for a lock-free design, because the keyring is
-    keyring-first on the SAVE side too (`Failed to save token to keyring,
-    falling back to file` — the file is only written when the keyring write
-    fails). Any successful run therefore repopulates the single global entry,
-    and the next spawn on a different account would inherit it. (Inferred from
-    the binary's strings; not yet reproduced with a live token save.)
-  - Net: per-account credential isolation is read-path only. The machine-wide
-    entry still needs an owner, so identity SWITCHES stay serialized — but only
-    until the child has read the credential (see above), not for the whole run.
-- **No credential CLI flag**: `agy --help` exposes no `--api-key` /
-  `--credential*` / `--token*` option.
-- **`JETSKI_OAUTH_TOKEN` exists in the binary but is IGNORED (re-measured
-  2026-10-22).** `agy.exe` contains the string pair
-  `JETSKI_OAUTH_TOKEN` + `Using OAuth token from environment variable`, so it
-  looked like the per-process injection route. Probing it directly: a brand-new
-  isolated HOME with `JETSKI_OAUTH_TOKEN=bogus-token-should-fail` still
-  completed a prompt (`exit 0`, `PROBE_OK`) — the variable is not consulted on
-  this build (1.4.3), and with no per-HOME token file either, the credential
-  could only have come from the machine keyring. The string belongs to another
-  auth product in the same binary.
-- **Documented env routes are different auth products**: `AGY_ADC_AUTH`
-  (Application Default Credentials / Agent Platform), and
-  `GEMINI_API_KEY` + `"modelProvider": "gemini"` in `settings.json` (the Gemini
-  API, not Antigravity subscription quota).
-- `AGY_ACCOUNT` selects among *plugin/manager* accounts, not CLI sign-ins.
+## Reverse MCP bridge
 
-Therefore a true fix must come from agy itself, either of:
+`mcpBridge` runs a loopback-only, token-guarded endpoint and registers a stdio MCP server in agy's registry (merged in, restored on disable). Bridged calls carry an opaque per-session route; DSH supplies the current step's schemas and admitted tool set. The allowlist applies to both layers; recursive agy helpers are excluded. Request bodies are capped (8 MiB → 413) and the bearer token compared in constant time. Colliding normalized tool names get a stable suffix. Every call is audit-logged (`mcp call <tool> [<outcome>] <ms>`, never arguments).
 
-1. **Namespace the keyring entry by HOME** — derive the go-keyring
-   service/user from the resolved home (e.g. `gemini:antigravity:<hash>`), so
-   an isolated HOME really is an isolated credential space. Needs a migration
-   path for the existing single entry.
-2. **Accept a per-process credential** — a `--credential-file` flag (or a
-   documented env var) that points at the account's token document, bypassing
-   the keyring entirely.
+**Contract for external callers of `tools.execute(exec)`:** DSH's `ToolExecutionInput` requires `callId`, `name`, `arguments` **and `signal: AbortSignal`** (missing `signal` throws on any awaited tool). Omit `agent` entirely when sessionless — never `null` (DSH checks `=== void 0`). The plugin's `/call` handler already mints an `AbortController` per call and resolves the caller from `x-dsh-session`. A fabricated `agent.session` cannot pass DSH's live-session check; tools requiring one need a real `agent`.
 
-Either one retires `credential-slot.ts` and the dispatch queue; until then the
-reference-counted slot is the strongest isolation the plugin can provide.
+## Not forwarded / known limitations
 
-## Not forwarded to agy
-
-- **Multimodal inputs via staged paths (`--add-dir`)** - agy print mode (`-p`) has no inline binary attachment flag. The bridge stages DSH attachments — images (up to `mediaMaxBytes` / `mediaMaxImages`) plus PDF, audio, and video files (up to `mediaMaxFileBytes`, 20 MiB default) — into a local media directory (`mediaDir`, TTL-swept) and references them by absolute path in the prompt, granting `--add-dir` so agy can inspect them with its own file/vision tools. Same approach as the pi extension.
-- **DSH tools to agy (reverse MCP bridge)** - available since v0.2 behind the
-  `mcpBridge` config flag (experimental): the plugin runs a loopback-only,
-  token-guarded HTTP endpoint and registers a zero-dependency stdio MCP
-  server in the MCP registry (`~/.gemini/config/mcp_config.json` by default,
-  where `agy` 1.4+ actually reads it, merged in and restored on disable).
-  Bridged calls carry an opaque per-session route. DSH supplies the current
-  model schemas and the admitted tool set for that step. Its PTC executor
-  can call the admitted inner tools. The configured allowlist applies to
-  both layers and recursive AGY helpers are excluded. Account or session
-  changes can require a separate ACP process, increasing memory use. The
-  loopback endpoint also caps request bodies (8 MiB → HTTP 413) and compares the
-  bearer token in constant time, so a token-holding but prompt-injected child
-  cannot OOM the host with an unbounded body or probe the token via timing.
-  Distinct DSH tool names that normalize to the same MCP name (e.g. `a.b`
-  and `a_b`) are disambiguated with a stable suffix instead of being silently
-  dropped, so every real tool stays reachable.
-  Every bridged call is audit-logged as `mcp call <tool> [<outcome>] <ms>` with
-  the caller class and the failure text (never the arguments), so a failed run
-  is visible in journald instead of only in transcripts.
-
-  **Contract for external / plugin callers of `tools.execute(exec)` (see #61):**
-  DSH's `ToolExecutionInput` requires `callId`, `name`, `arguments` **and
-  `signal: AbortSignal`** — a call without `signal` throws
-  `Cannot read properties of undefined (reading 'aborted')` inside any tool
-  that awaits. Omit `agent` entirely when there is no real session (leave it
-  `undefined`, **never** `null`: DSH checks `exec.agent === void 0`, so `null`
-  takes the else branch and reads `null.session`). This plugin's host-side
-  `/call` handler already does both (it mints an `AbortController` per call and
-  resolves the caller from the `x-dsh-session` header, passing `agent` only when
-  one is found). A fabricated `agent.session` cannot pass DSH's live-session
-  store check — there is no supported way to fake a real Session from outside;
-  tools that require one need a real `agent` or they fail by design.
-  Documenting the full DSH-core `execute(exec)` contract and any official
-  sessionless-execution API is upstream work, not this bundle.
-- **DSH `send_message` from an agy child** - DSH's sub-agent runtime appends a
-  footer telling the child to report with `send_message({ agent_id: <parent> })`.
-  In an agy run that name resolves to agy's **own** `send_message`, which does
-  not know DSH agent ids and fails with `recipient "..." not found`. The DSH
-  tool itself is bridgeable - add `send_message` to `mcpToolAllowlist` and call
-  it explicitly on the `dsh-tools-<port>` MCP server (agy dispatches MCP calls
-  by server + tool name, so there is no collision with the native tool). The
-  footer still names the native one, so an agy member should report through
-  `agent_teams_send_message` (or an explicit instruction) instead. Root cause is
-  upstream in `@deepseek-ai/dsh-subagent`, which assumes a DSH-native child.
-- **Full tool args / diff cards (v0.4.28+)** - the bridge reads agy's
-  conversation SQLite DB via the `sqlite3` CLI to recover arguments that
-  `filterToolParameters` strips from stream-json. When `sqlite3` is missing
-  or the DB is unreadable, cards fall back to stream-carried metadata only
-  (no path traversal: conversation ids are whitelist-validated).
-- **Structured outputs** - `agy_ask` accepts a `schema` parameter (JSON
-  Schema as a JSON string) enforced via `--json-schema` since v0.2. Wiring
-  schema enforcement into DSH-native tool-call generation remains future
-  work: DSH `GenerateOptions` has no schema field to map onto.
+- **DSH `send_message` from an agy child:** the footer names DSH's `send_message`, but in agy it resolves to agy's own tool. Bridge `send_message` explicitly via `mcpToolAllowlist` on the `dsh-tools-<port>` server, or instruct the child to use `agent_teams_send_message`. Root cause is upstream in `@deepseek-ai/dsh-subagent`.
+- **Full tool args / diff cards:** read from agy's conversation SQLite DB via `sqlite3` to recover args stripped by `filterToolParameters`; without `sqlite3` cards fall back to stream metadata (conversation ids whitelist-validated).
+- **Structured outputs:** `agy_ask` accepts a `schema` (JSON string via `--json-schema`); wiring schema into DSH-native tool generation is future work.
 
 ## Mapping choices
 
-- agy tool activity is mirrored as **native DSH tool cards** (`agy_tool` dispatched inside `run_code` and rendered by `tool.call.toolview` for terminal, inline diff, read, search, MCP, `swarm`, `run_workflow`, `schedule`, `manage_task`, subagents, `image-generator`, and browser/DevTools), falling back to reasoning-block annotations only when tool mirroring is disabled or unavailable.
-- Gemini effort suffixes fold into one base model with selectable efforts
-  (`gemini-3-6-flash` + `--effort`); Claude / GPT-OSS slugs stay verbatim
-  (agy rejects `--effort` for them).
-- Compaction / session-title auxiliary calls reuse the persistent
-  `agy acp` process pool when `transport === 'acp'` (creating ephemeral ACP
-  sessions that are cleaned up with `session/close` on settlement), falling
-  back to one-shot `agy -p` when `--settings` or `--json-schema` is required.
-  Compaction and session-title calls force `plan` mode, capped at 800K chars of
-  history.
+- agy tool activity mirrors as native DSH tool cards (`agy_tool` dispatched inside `run_code`), covering terminal, diff, read, search, MCP, `swarm`, `run_workflow`, `schedule`, `manage_task`, subagents, `image-generator`, browser/DevTools; falls back to reasoning annotations when mirroring is off.
+- Gemini effort suffixes fold into one model with selectable efforts; Claude / GPT-OSS slugs stay verbatim (agy rejects `--effort` for them).
+- Auxiliary calls (compaction, titles) reuse the `agy acp` pool when `transport === 'acp'`, else `agy -p`; they force `plan` mode, capped at 800K chars.
 
-## Upstream behaviors observed
+## Upstream behaviors
 
-- Permission prompts hang print mode (upstream issue #318) — hence the
-  permission-mode design.
-- `--sandbox` must not combine with `--dangerously-skip-permissions`
-  (upstream issue #36).
-- First unauthenticated call takes ~60-70s to fail (agy waits for a pasted
-  code); later failures are faster.
-- **A third-party MCP server registered directly in agy used to kill every
-  turn with `INVALID_ARGUMENT` — wrapped now, with one gap left.**
-  `<agy home>/.gemini/config/mcp_config.json` is agy's own registry; servers
-  listed there are loaded by agy itself, and the tool schemas they return are
-  forwarded to Gemini verbatim. Google's validator rejects the WHOLE request
-  when one declaration has an array without `items`
-  (`GenerateContentRequest.tools[0].function_declarations[N].parameters
-  .properties[args].items: missing field`). Measured 2026-11-23: godot-mcp
-  3.1.0 declares 12 such arrays (`args`, `vertices`, `normals`, `uvs`,
-  `indices`, `points`, `methods`, `cells`, `tracks`). The **schema doctor**
-  (`dist/mcp-sanitize.mjs` + `writeMcpConfig()` wrapping) now proxies every
-  foreign stdio entry and repairs `tools/list`, and drops agy's stale per-tool
-  descriptors so the next spawn refetches; verified 0 item-less arrays across
-  all 217 declared tools. Remaining gap: entries the plugin cannot wrap —
-  `url`-based (http/sse) servers, a spec larger than
-  `MAX_WRAPPED_SPEC_CHARS`, and a plugin that is removed while wrapped entries
-  are still in a foreign host's registry (they are unwrapped once the last
-  `dsh-tools-*` entry leaves, and every wrapper carries its original spec, so
-  recovery never needs the plugin). For those, dropping the duplicate entries
-  from agy's registry remains the manual mitigation (DSH's MCP bundles expose
-  the same tools through the hardened bridge).
+- Permission prompts hang print mode (#318) — hence the permission-mode design.
+- `--sandbox` must not combine with `--dangerously-skip-permissions` (#36).
+- First unauthenticated call takes ~60–70s to fail; later ones are faster.
+- **Third-party MCP servers with item-less array schemas break the whole turn.** agy forwards their `tools/list` verbatim and Google rejects any array declaration missing `items`. The schema doctor (`dist/mcp-sanitize.mjs` + `writeMcpConfig()`) proxies foreign stdio entries, repairs `tools/list`, and drops stale per-tool descriptors. Gaps: `url`-based (http/sse) servers, specs larger than `MAX_WRAPPED_SPEC_CHARS`, and a plugin removed while wrapped entries remain in a foreign registry (each wrapper carries its original spec, so recovery needs no plugin). Manual mitigation: remove duplicate entries from agy's registry.
 
 ## Fallbacks
 
-- If `agy models` fails (signed out, old CLI), a bundled fallback catalog is
-  served so the model picker is never empty; unknown ids are still accepted.
-- Conversation-id discovery prefers stream-embedded ids and falls back to a
-  conversations-directory snapshot diff (newest file wins; ambiguity is
-  tolerated).
+- If `agy models` fails, a bundled fallback catalog keeps the picker non-empty; unknown ids still accepted.
+- Conversation-id discovery prefers stream ids, falls back to a conversations-directory snapshot diff (newest file wins).
