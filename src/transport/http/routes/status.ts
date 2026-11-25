@@ -24,7 +24,7 @@ function selectableModels(
 }
 
 function handleStatus(services: HostServices, req: unknown, res: unknown): void {
-  const { getConfig, bin, store, pool, quota, warmup, catalog, auth, poolAuth, adapter, acpPool, backgroundWakeup, translation, lastRun } = services
+  const { getConfig, bin, store, pool, quota, warmup, catalog, auth, poolAuth, adapter, acpPool, backgroundWakeup, lastRun } = services
   const { version: versionCache, dormantReason } = services.status
       runRoute(res, async () => {
         const cfg = getConfig()
@@ -84,8 +84,6 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
           backgroundWakeupTtlMinutes: cfg.backgroundWakeupTtlMinutes,
           backgroundWakeupMaxPerSession: cfg.backgroundWakeupMaxPerSession,
           backgroundWakeState: typeof backgroundWakeup?.status === 'function' ? backgroundWakeup.status() : null,
-          imageTool: cfg.imageTool,
-          syncAccountCustomizations: cfg.syncAccountCustomizations,
           workspaceRoot: cfg.workspaceRoot,
           defaultModel: cfg.defaultModel,
           defaultEffort: cfg.defaultEffort,
@@ -114,21 +112,8 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
           warmupModels: cfg.warmupModels,
           warmupWindows: cfg.warmupWindows,
           warmupMaxProbesPerRun: cfg.warmupMaxProbesPerRun,
-          autoTranslate: cfg.autoTranslate,
-          translateDisplay: cfg.translateDisplay,
-          translateModel: cfg.translateModel,
-          translateEffort: cfg.translateEffort,
-          translateTargetLanguage: cfg.translateTargetLanguage,
           showHeaderBadge: cfg.showHeaderBadge,
-          showTranslateAction: cfg.showTranslateAction,
           poolWideCatalog: cfg.poolWideCatalog,
-          imageModel: cfg.imageModel,
-          imageEffort: cfg.imageEffort,
-          imageOutputDir: cfg.imageOutputDir,
-          btwEnabled: cfg.btwEnabled,
-          btwModel: cfg.btwModel,
-          btwEffort: cfg.btwEffort,
-          translateState: { pending: translation.pendingFor(), stats: translation.stats() },
           bindings: Object.keys(store.all()).length,
           effortUnsupported: adapter.effortUnsupportedModels(),
           cacheStats: cacheMetrics.snapshot(),

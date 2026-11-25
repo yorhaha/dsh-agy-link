@@ -6,12 +6,12 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgyGenerateOptions, AgyTranslateSession } from '../common/protocol.ts'
+import type { AgyGenerateOptions } from '../common/protocol.ts'
 import { Err, type PermissionMode, type PluginConfig } from '../common/types.ts'
 import { stateDir } from '../common/config.ts'
 import { agyBinDiagnostics } from '../runtime/agy/bin.ts'
 
-export type CallPurpose = 'chat' | 'compaction' | 'session-title' | 'translation' | 'image'
+export type CallPurpose = 'chat' | 'compaction' | 'session-title' | 'image'
 
 export interface CallContext {
   cfg: PluginConfig
@@ -20,11 +20,8 @@ export interface CallContext {
   isReview: boolean
   isTitle: boolean
   isCompaction: boolean
-  isTranslate: boolean
   isImage: boolean
   isAux: boolean
-  translateSession: AgyTranslateSession | null
-  isTranslateSession: boolean
   permissionMode: PermissionMode
   sessionKey: string
   workspaceRoot: string
@@ -112,11 +109,10 @@ export function resolveCallContext(input: CallContextInput): CallContext {
   const purpose: CallPurpose = options.purpose ?? 'chat'
   const isTitle = purpose === 'session-title'
   const isCompaction = purpose === 'compaction'
-  const isTranslate = purpose === 'translation'
   const isImage = purpose === 'image'
   // Title calls are aux, but must not be forced into plan mode (that drops the
   // length/format constraints).
-  const isAux = isCompaction || isTitle || isReview || isTranslate || isImage
+  const isAux = isCompaction || isTitle || isReview || isImage
 
   // Image may override the configured mode for one call (headless `skip`).
   // Everything else keeps the historical rules: aux runs are read-only plan
@@ -129,16 +125,7 @@ export function resolveCallContext(input: CallContextInput): CallContext {
         ? 'plan'
         : cfg.permissionMode
 
-  // Translation with its OWN agy conversation: setup is sent once, text every
-  // later call. Bound under `${sessionKey}#tsl`.
-  const rawTranslate = isTranslate ? options.agyTranslateSession : undefined
-  const translateSession: AgyTranslateSession | null =
-    rawTranslate === undefined
-      ? null
-      : { setup: String(rawTranslate.setup ?? ''), text: String(rawTranslate.text ?? '') }
-  const isTranslateSession = translateSession !== null
-
-  if (isAux && !isReview && !isTranslate && !isImage && !cfg.allowAuxiliary) {
+  if (isAux && !isReview && !isImage && !cfg.allowAuxiliary) {
     throw new LlmError('auxiliary calls are disabled for the antigravity route (allowAuxiliary: false)', Err.AUX_DISABLED)
   }
 
@@ -168,8 +155,8 @@ export function resolveCallContext(input: CallContextInput): CallContext {
   // GEMINI.md / AGENTS.md / workspace context into every one-shot aux process
   // (~15-20k uncached tokens at 0% cache). A stable empty directory keeps the
   // prefix tiny and identical across calls, so Gemini's implicit cache can hit
-  // after the first one. Titles/compaction/translation never read files.
-  const neutralAuxWorkspace = cfg.auxNeutralWorkspace && cfg.workspaceRoot === '' && (isTitle || isCompaction || isTranslate)
+  // after the first one. Titles/compaction never read files.
+  const neutralAuxWorkspace = cfg.auxNeutralWorkspace && cfg.workspaceRoot === '' && (isTitle || isCompaction)
   if (neutralAuxWorkspace) {
     workspaceRoot = auxWorkspaceDir()
   }
@@ -181,11 +168,8 @@ export function resolveCallContext(input: CallContextInput): CallContext {
     isReview,
     isTitle,
     isCompaction,
-    isTranslate,
     isImage,
     isAux,
-    translateSession,
-    isTranslateSession,
     permissionMode,
     sessionKey,
     workspaceRoot,

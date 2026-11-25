@@ -9,14 +9,7 @@
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { AgyEvent, AgyTransportMode, PermissionMode } from './types.ts'
 
-export type AgyPurpose = 'compaction' | 'session-title' | 'translation' | 'image'
-
-export interface AgyTranslateSession {
-  /** Persona + how to read the DSH session history; sent once per conversation. */
-  setup: string
-  /** The reply being translated; sent on every call. */
-  text: string
-}
+export type AgyPurpose = 'compaction' | 'session-title' | 'image'
 
 export interface AgyAccountInfo {
   id: string
@@ -33,7 +26,6 @@ export interface BridgeLease {
 
 export type AgyGenerateOptions = Omit<GenerateOptions, 'purpose'> & {
   purpose?: AgyPurpose
-  agyTranslateSession?: AgyTranslateSession
   agyImagePrompt?: string
   agyPermissionMode?: PermissionMode
   agyAgent?: string

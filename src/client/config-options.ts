@@ -101,7 +101,7 @@ export function orchestratorRoleModels(models: ReadonlyArray<CatalogModelLike>):
  *
  * agy has a fixed role whitelist (`orchestrator-model-roles`); a model outside
  * it is ignored upstream, so offering it here only produces a silently
- * ineffective setting. The Btw dropdown keeps using `orchestratorRoleModels`:
+ * ineffective setting. The model dropdown keeps using `orchestratorRoleModels`:
  * it runs a normal chat model, not an Orchestrator seat.
  */
 export function orchestratorRoleModelsFor(

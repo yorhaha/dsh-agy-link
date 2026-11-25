@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### English
+
+- **Removal(slim-down): drop translation (`/tsl`), side questions (`/atw`), and multi-account ecosystem sync.** To keep the plugin focused on its core job — calling your personal Antigravity (agy) account's models and viewing quota — these three optional features were removed end to end: `features/translation` + `TranslationService` + the `/tsl` command + translation cards/records + the `translation` call purpose; `features/btw` + the `/atw` command + `BtwDock`; `features/ecosystem` + the Ecosystem settings panel + `syncAccountCustomizations` + the `/agy plugins|mcp|skills|agents|sync-ecosystem` subcommands. All related config keys, HTTP routes, locales, tests and docs were removed too. The `/agy fork`, `/agy grill`, `/agy learn`, `/agy compact` commands, the generic `translateModelOptions`/`translateEffortOptions` helpers (reused by the orchestrator), i18n localization, and multimodal attachments remain.
+- **Removal(image): drop the whole in-plugin image-generation feature.** Removed the `agy_image` DSH tool, the `/agy image` (`/agy img`) slash command, the headless `dsh-agy-image` CLI, `ImageService`/`src/features/image`, the Settings "Image generation" card (`imageModel`/`imageEffort`/`imageTool`), and all related config, HTTP-route fields, locales, tests and docs. General multimodal **attachments** (staged images/PDF/audio/video, inline lightbox, `image-generator` subagent cards) and the model-scoped quota bucket handling for agy's own `generate_image` tool calls are unaffected.
+
+### 中文
+
+- **移除(精简)：删除 `/tsl` 翻译、`/atw` 旁路提问与多账号定制生态同步。** 为让插件聚焦核心目标——调用个人 Antigravity（agy）账号模型并查看额度——这三个可选功能已完整移除：`features/translation` + `TranslationService` + `/tsl` 命令 + 译文卡片/记录 + `translation` 调用 purpose；`features/btw` + `/atw` 命令 + `BtwDock`；`features/ecosystem` + 生态设置面板 + `syncAccountCustomizations` + `/agy plugins|mcp|skills|agents|sync-ecosystem` 子命令。相关配置项、HTTP 路由、多语言文案、测试与文档一并删除。`/agy fork`、`/agy grill`、`/agy learn`、`/agy compact` 命令、被编排器复用的通用 `translateModelOptions`/`translateEffortOptions` 辅助函数、i18n 本地化与多模态附件均保留。
+- **移除(生图)：删除插件内的整套生图功能。** 移除 `agy_image` DSH 工具、`/agy image`（`/agy img`）斜杠命令、无头 `dsh-agy-image` CLI、`ImageService`/`src/features/image`、设置里的「生图」卡片（`imageModel`/`imageEffort`/`imageTool`），以及相关配置、HTTP 路由字段、多语言文案、测试与文档。通用的**多模态附件**（图片/PDF/音频/视频 staging、内联灯箱、`image-generator` 子代理卡片）与 agy 自身 `generate_image` 工具调用的模型级配额桶处理不受影响。
+
 ## 0.6.93 (2026-11-25)
 
 ### English

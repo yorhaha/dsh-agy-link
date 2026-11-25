@@ -1,5 +1,5 @@
 // Runtime controls exposed in SettingsSection: permission mode (skip/auto/accept-edits/plan),
-// OS terminal sandbox (--sandbox), execution transport (cli/acp), in-chat agy_image tool,
+// OS terminal sandbox (--sandbox), execution transport (cli/acp),
 // multi-account customization sync, and default custom agent (--agent).
 import { h, useEffect, useState } from '../react.ts';
 import { S } from '../styles.ts';
@@ -14,10 +14,6 @@ export interface RuntimeControlsProps {
 	status: StatusPayload;
 	loadingAction: string | null;
 	setCfg: (key: string, value: unknown) => Promise<void>;
-	exclude?: {
-		imageTool?: boolean;
-		syncCustomizations?: boolean;
-	};
 }
 
 function boolRow(opts: {
@@ -153,32 +149,8 @@ function renderAgentRow(props: RuntimeControlsProps & {
 	});
 }
 
-export function renderImageToolRow(props: RuntimeControlsProps): unknown {
-	return boolRow({
-		t: props.t,
-		title: props.t('config.imageTool'),
-		desc: props.t('config.imageToolDesc'),
-		cfgKey: 'imageTool',
-		value: props.status.imageTool !== false,
-		loadingAction: props.loadingAction,
-		setCfg: props.setCfg,
-	});
-}
-
-export function renderSyncCustomizationsRow(props: RuntimeControlsProps): unknown {
-	return boolRow({
-		t: props.t,
-		title: props.t('config.syncCustomizations'),
-		desc: props.t('config.syncCustomizationsDesc'),
-		cfgKey: 'syncAccountCustomizations',
-		value: props.status.syncAccountCustomizations !== false,
-		loadingAction: props.loadingAction,
-		setCfg: props.setCfg,
-	});
-}
-
 export function RuntimeControlsSection(props: RuntimeControlsProps): unknown {
-	const { t, status, loadingAction, setCfg, exclude } = props;
+	const { t, status, loadingAction, setCfg } = props;
 	const [agentDraft, setAgentDraft] = useState(status.agent ?? '');
 	useEffect(() => {
 		setAgentDraft(status.agent ?? '');
@@ -196,8 +168,6 @@ export function RuntimeControlsSection(props: RuntimeControlsProps): unknown {
 			setCfg,
 		}),
 		renderTransportRow(props),
-		exclude?.imageTool ? null : renderImageToolRow(props),
-		exclude?.syncCustomizations ? null : renderSyncCustomizationsRow(props),
 		// Opt-in: an absent field means "off", so the switch must not claim to be
 		// on when the host never reported a value.
 		boolRow({
@@ -218,17 +188,6 @@ export function RuntimeControlsSection(props: RuntimeControlsProps): unknown {
 			desc: t('config.mcpBridgeDesc'),
 			cfgKey: 'mcpBridge',
 			value: status.mcpBridge === true,
-			loadingAction,
-			setCfg,
-		}),
-		// Issue #201: a user with a dedicated /btw plugin may not want this one
-		// registered. Off needs a restart (commands are registered at startup).
-		boolRow({
-			t,
-			title: t('config.btwEnabled'),
-			desc: t('config.btwEnabledDesc'),
-			cfgKey: 'btwEnabled',
-			value: status.btwEnabled !== false,
 			loadingAction,
 			setCfg,
 		}),

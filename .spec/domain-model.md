@@ -26,7 +26,6 @@
 | **Eligibility（资格）** | 一个账号能否服务「某族 + 某模型」：`disabled` / `auth` / `model-unsupported` / `cooldown` / `model-cooldown` / `quota`。 | `explainIneligibility()` |
 | **Quota Model（第二配额维度）** | 生图请求同时受「驱动聊天模型」与「图片模型桶」约束；`quotaModel` 就是后者。 | `quotaModel`、`isModelQuotaClear()` |
 | **Sticky Pointer（粘性指针）** | 每族当前使用的账号；正常聊天尽量粘住，只有不可用才前进。 | `activeAccountIds[family]`、`lastActiveAccountId` |
-| **Local Rotation（局部轮换）** | 一次生图请求内部的换号：用 `avoidAccountIds` + `findAccount()`，**不移动**粘性指针。 | `ImageService.runAttempts` |
 | **Session Binding（会话绑定）** | 某个 DSH 会话在某族上实际跑过的账号（`store` 的 `<sessionKey>:<accountId>`）。**仍可用时压过族粘性指针**：会话不应在对话中途悄悄换号。 | `stickyAccount()` |
 | **Quota Hops（换号预算）** | 一次请求内允许因配额再试的账号数上限（`min(启用账号数-1,16)`）。 | `poolQuotaHops` |
 | **Failover（失败接管）** | 冷却/暂停当前账号并切到下一个可用账号；TOS 终态**永不**跨账号。 | `quota-failover.ts` |
@@ -56,8 +55,6 @@
 | 能力 | 入口 | 说明 |
 | --- | --- | --- |
 | 文本/工具 | `AgyAdapter` | 文件、命令、搜索、浏览器、子代理等由 agy 内部工具执行并镜像为 `agy_tool` 卡片 |
-| 生图 | `agy_image` / `dsh-agy-image` / `/agy image` | 驱动模型 + 图片模型桶；支持参考图、比例、产物校验、局部轮换 |
-| 翻译 | `/tsl` | `TranslationService`，独立重试预算 |
 | 子代理/后台 | `SubagentTracker`、`backgroundWakeup` | transcript tail、看门狗保活 |
 | 预热 | `WarmupService` | 避开冷却/让路账号 |
 | 账号管理 | `/agy ...`、`/plugins/agy-link/*`、账号池面板 | 登录、启停、当前账号、配额同步、清除冷却 |
@@ -76,5 +73,4 @@
 
 - 风控与配额规则：[quota-and-risk-control.md](quota-and-risk-control.md)
 - 凭据生命周期：[credential-lifecycle.md](credential-lifecycle.md)
-- 生图细节：[image.md](image.md)
 - 其余维度见 [README.md](README.md)

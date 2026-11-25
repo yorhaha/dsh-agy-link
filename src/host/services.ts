@@ -8,8 +8,6 @@ import type { ManagedAccount } from '../common/pool-types.ts'
 import { BridgeSteps, enterHostStep } from './bridge-steps.ts'
 import { AgyAdapter } from './adapter.ts'
 import { AuthHelper } from './auth.ts'
-import { TranslationService, TRANSLATION_RECORD_TYPE, type TranslationRecord } from './translate.ts'
-import { TranslationWorkerPool } from '../features/translation/worker.ts'
 import { ModelCatalog } from './models.ts'
 import { RunRegistry } from './recording.ts'
 import { resolveAgyBin, probeProcess, isolatedHomeEnv, parseVersion } from './runner.ts'
@@ -25,11 +23,8 @@ import { detectSystemProxy } from './wincred.ts'
 import { buildAgyEnv } from '../runtime/net/account-env.ts'
 import { StreamJsonParser } from './parser.ts'
 import { defaultMediaDir } from './media.ts'
-import { ImageService, runViaAdapter } from './image.ts'
-import { EcosystemService } from '../features/ecosystem/index.ts'
 import { AcpSessionPool, runAcpAttempt } from '../features/acp/index.ts'
 import { createPoolQuotaHooks } from '../provider/quota-failover.ts'
-import { PREFERRED_IMAGE_QUOTA_MODEL } from '../common/model-lineup.ts'
 import { BackgroundWakeWatcher, type AgentLike } from '../features/background/watcher.ts'
 import { agyMcpConfigPath, mcpServerKey, registerBridgeMcpConfig, type BridgeRegistryState } from './mcp-bridge.ts'
 import { readAccountCredential } from './credential-backup.ts'
@@ -38,14 +33,12 @@ import { buildCliQuotaDeps } from './quota-cli-deps.ts'
 import { ACP_REPORT_RECORD_TYPE, createSessionRecords } from './session-records.ts'
 import {
   Semaphore,
-  createBtwServiceForHost,
   createForcedPlanGuard,
   findSessionLogFile,
   readSessionImage,
   resolveSessionGoal,
   resolveSessionPendingModel,
   resolveSessionPlanMode,
-  runTranslationStream,
   syncSessionModelSelection,
 } from './service-helpers.ts'
 
@@ -305,7 +298,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
 
   const bridgeSteps = new BridgeSteps()
   const bridgeState: BridgeRegistryState = { bridge: null, restores: [], log }
-  const ecosystem = new EcosystemService({ pool, getConfig, log })
   const auth = new AuthHelper(bin, () => getConfig().suppressAgyAutoUpdate)
   const poolAuth = new PoolAuthFlow(pool, quota, log, {
     onUpdate: () => {
@@ -314,9 +306,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
       if (activeId) void catalog.forceRefreshAndNotify(activeId).catch(() => undefined)
     },
     onIsolatedAccountCommitted: (acc) => {
-      if (getConfig().syncAccountCustomizations) {
-        ecosystem.syncAccount(acc)
-      }
       if (bridgeState.bridge !== null && acc.dir) {
         const cfg = getConfig()
         if (cfg.mcpConfigScope === 'global' || cfg.mcpConfigScope === 'both') {
@@ -490,35 +479,7 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
     },
   })
 
-  const translationWorkers = new TranslationWorkerPool({
-    cfg: getConfig,
-    bin,
-    pool,
-    log,
-    isEffortUnsupported: (model) => effortStore.read().includes(model),
-    rememberEffortUnsupported: (model) => {
-      if (catalog.advertisedEfforts(model).length === 0) {
-        effortStore.remember(model)
-        notifyPicker()
-      }
-    },
-  })
-
   const quotaHooks = createPoolQuotaHooks(pool)
-
-  const translation = new TranslationService({
-    cfg: getConfig,
-    catalog: () => catalog.get(),
-    getSession: (id) => sessionsSvc()?.get(id),
-    autoEnabled: (id) => sessionAuto.get(id) ?? getConfig().autoTranslate,
-    sessionCwd: (id) => sessionWorkspace(id),
-    sessionLogPath: (id) => findSessionLogFile(dshHome(), id),
-    poolQuotaHops: quotaHooks.poolQuotaHops,
-    log,
-    run: (req) => runTranslationStream(ctx, getConfig, log, req, translationWorkers),
-    appendRecord: (sessionId, record: TranslationRecord) =>
-      appendRecordTo(sessionId, TRANSLATION_RECORD_TYPE, record, 'persist translation record'),
-  })
 
   const setOverride = (key: string, value: unknown): void => {
     binCache = undefined
@@ -559,29 +520,9 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
     return list
   }
 
-  const imageService = new ImageService({
-    cfg: getConfig,
-    bin,
-    run: (call) => runViaAdapter(adapter, call),
-    catalog: () => catalog.get(),
-    ...quotaHooks,
-    // Prefer the advertised image model, fall back to the one agy 1.5.x ships.
-    imageQuotaModel: () =>
-      catalog.get().models.find((m) => /image/i.test(m.id))?.id ?? PREFERRED_IMAGE_QUOTA_MODEL,
-    log,
-  })
-
-  const btw = createBtwServiceForHost({
-    cfg: getConfig, bin, pool, catalog, semaphore, log,
-    effortUnsupported: () => effortStore.read(),
-    onEffortUnsupported: (model) => effortStore.remember(model),
-    sessions: sessionsSvc,
-    activeRun: (id) => adapter.activeRun(id),
-  })
-
   return {
     getConfig, log, notifyPicker, bin, version, resolveVersion, status, store, pool, quota, warmup, semaphore,
-    catalog, auth, poolAuth, runs, adapter, acpPool, backgroundWakeup, ecosystem, imageService, translation, translationWorkers, btw, setOverride, armForcedPlan: forcedPlan.arm,
+    catalog, auth, poolAuth, runs, adapter, acpPool, backgroundWakeup, setOverride, armForcedPlan: forcedPlan.arm,
     readEffortUnsupported: effortStore.read,
     rememberEffortUnsupported: effortStore.remember,
     sessionsSvc, sessionAuto,

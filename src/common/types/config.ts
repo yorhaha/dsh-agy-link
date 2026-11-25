@@ -11,7 +11,6 @@ export type PermissionMode = 'skip' | 'auto' | 'plan' | 'accept-edits'
 export type AgyTransportMode = 'cli' | 'acp'
 
 export type WarmupWindowMode = 'weekly' | '5h' | 'both'
-export type TranslateDisplayMode = 'card' | 'replace'
 
 
 export interface PluginConfig {
@@ -29,10 +28,6 @@ export interface PluginConfig {
   agySettings: string
   /** Execution transport: short-lived `-p` CLI or persistent `agy acp` stdio server. */
   transport: AgyTransportMode
-  /** Register the `agy_image` DSH tool so any model can generate images via agy. */
-  imageTool: boolean
-  /** Automatically mirror primary account MCP/plugins/skills/rules into isolated pool accounts. */
-  syncAccountCustomizations: boolean
   /** Per-file byte cap for non-image multimodal attachments (PDF/audio/video, default 20 MiB). */
   mediaMaxFileBytes: number
   defaultModel: string
@@ -103,7 +98,7 @@ export interface PluginConfig {
    */
   forwardSystemPrompt: boolean
   /**
-   * Run pure-text auxiliary calls (session-title / compaction / translation)
+   * Run pure-text auxiliary calls (session-title / compaction)
    * in a stable empty directory instead of the session workspace. agy loads
    * the project's GEMINI.md/AGENTS.md and workspace context into every
    * one-shot aux process (~15-20k uncached tokens each, 0% cache); a neutral
@@ -234,57 +229,10 @@ export interface PluginConfig {
    */
   warmupMaxProbesPerRun: number
   /**
-   * Auto "plain language" translation after every completed agent turn
-   * (default OFF). The finished turn's final answer is sent to the translate
-   * model and the result is persisted as a `plugin:agy-link/translation`
-   * session record, rendered as a labelled Gemini card under that reply.
-   */
-  autoTranslate: boolean
-  /**
-   * How a translated reply is shown (default `card`). `card` keeps the reply and
-   * adds the Gemini card under it; `replace` shows the translation in the
-   * reply's place, with a toggle back to the original. Display only: the
-   * session (and so the model's own context) always keeps the original text.
-   */
-  translateDisplay: TranslateDisplayMode
-  /** Model used for translation (default: the preferred Gemini Flash; falls back through the live catalog). */
-  translateModel: string
-  /**
-   * Reasoning effort for effort-capable translate models (default `medium`).
-   * Measured on real agy for one 964-char reply: low ≈ 12s, medium ≈ 33s,
-   * high ≈ 45s — and the high-effort output also reads more like a formal report.
-   */
-  translateEffort: string
-  /** Target language wording passed to the translator prompt. */
-  translateTargetLanguage: string
-  /** Per-request source text cap; longer answers are chunked by paragraph. */
-  translateMaxChars: number
-  /** Output token cap for one translation call. */
-  translateMaxTokens: number
-  /** Watchdog for one translation call. */
-  translateTimeoutMs: number
-  /** Extra attempts after the first failed translation (each retry re-picks an account). */
-  translateRetries: number
-  /** Skip translating turns already produced by the translate model itself. */
-  /**
-   * Run translations inside ONE agy conversation per DSH session (1:1), so the
-   * persona — including that session's id, its workspace and where its history
-   * lives — is sent once and every later translation sends only the source text.
-   */
-  translateBindConversation: boolean
-  translateSkipSameModel: boolean
-  /** Minimum spacing between automatic translations inside one session (0 = no throttle). */
-  translateMinIntervalMs: number
-  /**
    * Show Antigravity status badge in the conversation header toolbar (default: true).
    * Set false to hide it (especially on mobile / narrow viewports).
    */
   showHeaderBadge: boolean
-  /**
-   * Show per-message plain-language translate action button in chat assistant actions (default: true).
-   * Set false to hide the "译成人话" Gemini button.
-   */
-  showTranslateAction: boolean
   /**
    * Show the union of models supported by every enabled pool account in the
    * picker (default: false = strict single-account isolation). Opt-in so a
@@ -292,26 +240,6 @@ export interface PluginConfig {
    * `selectAccount(family, model)` route to it automatically.
    */
   poolWideCatalog: boolean
-  // ---- image generation (`dsh-agy-image` CLI, purpose:'image' adapter route) ----
-  /** Chat model that drives the `generate_image` / `image-generator` call ('' = defaultModel → Gemini 4 Hydrogen when discovered, else Gemini Flash). */
-  imageModel: string
-  /** Reasoning effort for prompt planning and visual self-review (default `medium`: balanced quality and latency). */
-  imageEffort: string
-  /** Wall-clock cap for one image generation, including the image model (default 240s). */
-  imageTimeoutMs: number
-  /** Largest artifact the plugin will accept (default 20 MiB). */
-  imageMaxBytes: number
-  /** Copy finished images here by default ('' = leave them in agy's artifact dir). */
-  imageOutputDir: string
-  /** Extra attempts after a retryable image failure (default 1). */
-  imageRetries: number
-  // ---- `/btw` side questions ----
-  /** Model used for `/btw` side questions (`''` = auto: `defaultModel` → Gemini 4 Hydrogen → Gemini Flash). */
-  /** Register the `/agy-btw` side-question command at all (default true). Off needs a restart. */
-  btwEnabled: boolean
-  btwModel: string
-  /** Reasoning effort for `/btw` side questions (default `'medium'` for balanced quality and speed). */
-  btwEffort: string
   /**
    * Wake idle DSH sessions across turns when an agy `schedule` timer,
    * detached background task/subagent, or persistent ACP update finishes
@@ -352,8 +280,6 @@ export function defaultConfig(): PluginConfig {
     // Opt back into the CLI with `DSH_AGY_TRANSPORT=cli`,
     // `/agy config transport cli` or the settings page.
     transport: 'acp',
-    imageTool: true,
-    syncAccountCustomizations: true,
     mediaMaxFileBytes: 20 * 1024 * 1024,
     defaultModel: '',
     // Explicit 'high' (not ''): effort-capable models default to the highest
@@ -443,35 +369,8 @@ export function defaultConfig(): PluginConfig {
     warmupIntervalHours: 0,
     // Bounded by default so one click cannot probe an entire large pool.
     warmupMaxProbesPerRun: 12,
-    // Translation is strictly opt-in: it spends quota on every completed
-    // turn, so the default must never silently start billing a user.
-    autoTranslate: false,
-    translateDisplay: 'card',
-    translateModel: PREFERRED_GEMINI_FLASH,
-    // Default to 'low': real agy measurements give ~12s cold / ~4-9s warm at low
-    // vs ~33s at medium and ~45s at high, and plain-language rewriting needs
-    // conversational clarity rather than multi-step chain-of-thought reasoning.
-    translateEffort: 'low',
-    translateTargetLanguage: '中文（简体）',
-    translateMaxChars: 8_000,
-    translateMaxTokens: 4_096,
-    translateTimeoutMs: 120_000,
-    translateRetries: 2,
-    translateBindConversation: true,
-    translateSkipSameModel: true,
-    translateMinIntervalMs: 3_000,
     showHeaderBadge: true,
-    showTranslateAction: true,
     poolWideCatalog: false,
-    imageModel: '',
-    imageEffort: 'medium',
-    imageTimeoutMs: 240_000,
-    imageMaxBytes: 20 * 1024 * 1024,
-    imageOutputDir: '',
-    imageRetries: 1,
-    btwEnabled: true,
-    btwModel: '',
-    btwEffort: 'medium',
     backgroundWakeup: false,
     backgroundWakeupTtlMinutes: 30,
     backgroundWakeupMaxPerSession: 12,

@@ -73,7 +73,7 @@ test('returns the full services shape with sane defaults', (t) => {
   for (const key of ['getConfig', 'log', 'notifyPicker', 'bin', 'version', 'setOverride', 'readEffortUnsupported', 'rememberEffortUnsupported', 'sessionsSvc', 'mediaDir', 'onConfigWritten']) {
     assert.equal(typeof (services as unknown as Record<string, unknown>)[key], 'function', key + ' should be a function')
   }
-  for (const key of ['status', 'store', 'pool', 'quota', 'warmup', 'catalog', 'auth', 'poolAuth', 'runs', 'adapter', 'translation', 'bridgeState', 'webServerPort']) {
+  for (const key of ['status', 'store', 'pool', 'quota', 'warmup', 'catalog', 'auth', 'poolAuth', 'runs', 'adapter', 'bridgeState', 'webServerPort']) {
     assert.equal(typeof (services as unknown as Record<string, unknown>)[key], 'object', key + ' should be an object')
   }
   assert.ok(services.sessionAuto instanceof Map)

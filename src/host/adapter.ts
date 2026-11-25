@@ -72,7 +72,7 @@ export class AgyAdapter extends LlmAdapter {
     return this.effortPolicy.unsupportedModels()
   }
 
-  /** In-flight recording for a session (used by /agy btw to inspect live turn progress). */
+  /** In-flight recording for a session (used to inspect live turn progress). */
   activeRun(sessionKey: string): RunRecording | undefined {
     return this.activeRuns.get(sessionKey)
   }
@@ -227,13 +227,9 @@ export class AgyAdapter extends LlmAdapter {
         : { sessionCwd: (id: string) => this.deps.sessionCwd?.(id) }),
       warnOnce: (key: string, message: string) => this.warnOnce(key, message),
     })
-    const { cfg, bin, isReview, isTitle, isCompaction, isTranslate, isImage, isAux } = ctx
+    const { cfg, bin, isReview, isTitle, isCompaction, isImage, isAux } = ctx
     const { permissionMode, sessionKey, workspaceRoot, isCodeMode, hasToolSupport } = ctx
     const policy = purposePolicy(ctx)
-    // Keep the local alias: TypeScript's aliased-condition narrowing makes
-    // `else if (isTranslateSession)` narrow `translateSession` below.
-    const translateSession = ctx.translateSession
-    const isTranslateSession = translateSession !== null
     // DSH synthetic lifecycle continuations: short-circuit on goal completion
     // or dismissed plan review; approved/keep-planning must run agy next.
     if (isGoalToolContinuation(options.messages) || classifyPlanToolContinuation(options.messages) === 'dismissed') {

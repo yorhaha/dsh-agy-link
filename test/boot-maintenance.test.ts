@@ -216,7 +216,6 @@ test('the plugin source wires deferred maintenance instead of doing it inline at
   // scheduleBootMaintenance(), never in runBootHygiene().
   const hygiene = readFileSync(join(process.cwd(), 'src/host/boot-hygiene.ts'), 'utf8')
   assert.equal(/pool\.sweepStaleStaging\(\)/.test(hygiene), false, 'staging sweep must not run on the load path')
-  assert.equal(/ecosystem\?\.syncAll\(\)/.test(hygiene), false, 'the ecosystem mirror must not run on the load path')
   const index = readFileSync(join(process.cwd(), 'src/index.ts'), 'utf8')
   assert.match(index, /scheduleBootMaintenance\(/)
   // The boot probe must not fan the model discovery out over the whole pool.

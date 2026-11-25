@@ -35,7 +35,7 @@ export function createSessionRecords(deps: SessionRecordsDeps): SessionRecords {
           const mod = (await import(spec)) as { appendPluginRecord?: AppendPluginRecord }
           return typeof mod.appendPluginRecord === 'function' ? mod.appendPluginRecord : null
         } catch (e) {
-          deps.log('translation records unavailable: ' + String(e))
+          deps.log('session records unavailable: ' + String(e))
           return null
         }
       })()

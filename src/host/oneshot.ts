@@ -116,7 +116,7 @@ export async function schemaArgs(schema: unknown): Promise<{ args: string[]; cle
 }
 
 /**
- * Environment for one `agy -p` one-shot run (ask tool, title, translation
+ * Environment for one `agy -p` one-shot run (ask tool, title
  * helpers, quota probes).
  *
  * One-shots used to build the environment without `telemetryFlags`, which made

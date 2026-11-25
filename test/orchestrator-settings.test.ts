@@ -522,7 +522,6 @@ test('HTTP /config validation, /status exposure, and /agy status output cover or
     poolAuth: { status: () => ({ phase: 'idle' }) },
     adapter: { effortUnsupportedModels: () => [] },
     acpPool: { status: () => ({ activeProcesses: 0, sessions: 0, keys: [] }) },
-    ecosystem: {},
     translation: { pendingFor: () => [], stats: () => ({}), isPending: () => false, existingTurn: () => null, existingMessage: () => null },
     setOverride: (k: string, v: unknown) => {
       writes.push([k, v])

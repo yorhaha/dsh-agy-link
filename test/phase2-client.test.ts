@@ -9,10 +9,8 @@ import { join } from 'node:path'
 import { register as registerStatus } from '../src/transport/http/routes/status.ts'
 import { register as registerPool } from '../src/transport/http/routes/pool.ts'
 import type { Route } from '../src/transport/http/respond.ts'
-import { TranslationService } from '../src/features/translation/service.ts'
-import { ImageService } from '../src/features/image/service.ts'
 import { SubagentTracker } from '../src/features/subagent/tracker.ts'
-import { Semaphore, findSessionLogFile, readSessionImage, resolveSessionGoal, resolveSessionPlanMode, runTranslationStream } from '../src/host/service-helpers.ts'
+import { Semaphore, findSessionLogFile, readSessionImage, resolveSessionGoal, resolveSessionPlanMode } from '../src/host/service-helpers.ts'
 import { defaultConfig } from '../src/common/types.ts'
 import { R } from '../src/client/react.ts'
 import { agyIcon, brandIcon, uiIcon } from '../src/client/icons.ts'
@@ -81,7 +79,6 @@ test('GET /plugins/agy-link/status emits ETag and responds 304 Not Modified on m
     auth: { status: () => ({ phase: 'ok' }) },
     poolAuth: { status: () => ({ phase: 'idle' }) },
     adapter: { effortUnsupportedModels: () => [] },
-    translation: { pendingFor: () => [], stats: () => ({ count: 0, cacheHits: 0, last: null }) },
     lastRun: null,
   } as never)
 
@@ -400,46 +397,6 @@ test('Semaphore enforces bounded concurrency/abort and resolveSessionGoal + read
       null,
     )
 
-    // Exercise runTranslationStream (ok text-delta + empty response + error finish) and icon renderers
-    const ctxOk = {
-      llm: {
-        stream: async function* () {
-          yield { type: 'text-delta', text: 'translated prose' }
-          yield { type: 'finish', reason: { kind: 'stop' } }
-        },
-      },
-    } as never
-    const tOk = await runTranslationStream(ctxOk, () => defaultConfig(), () => {}, {
-      prompt: 'hi', model: 'gemini-3.8-flash', maxTokens: 100, timeoutMs: 2000, text: 'hi',
-    })
-    assert.equal(tOk.ok, true)
-    assert.equal(tOk.text, 'translated prose')
-
-    const ctxErr = {
-      llm: {
-        stream: async function* () {
-          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'RATE_LIMIT', message: '429' } } }
-        },
-      },
-    } as never
-    const tErr = await runTranslationStream(ctxErr, () => defaultConfig(), () => {}, {
-      prompt: 'hi', model: 'gemini-3.8-flash', maxTokens: 100, timeoutMs: 2000, text: 'hi',
-    })
-    assert.equal(tErr.ok, false)
-    assert.equal(tErr.code, 'RATE_LIMIT')
-
-    const ctxEmpty = {
-      llm: {
-        stream: async function* () {
-          yield { type: 'finish', reason: { kind: 'stop' } }
-        },
-      },
-    } as never
-    const tEmpty = await runTranslationStream(ctxEmpty, () => defaultConfig(), () => {}, {
-      prompt: 'hi', model: 'gemini-3.8-flash', maxTokens: 100, timeoutMs: 2000, text: 'hi',
-    })
-    assert.equal(tEmpty.ok, false)
-
     agyIcon(18)
     brandIcon('gemini', 12)
     brandIcon('claude', 12)
@@ -474,39 +431,6 @@ test('getGitHeadContentAsync resolves cached git root, rejects binary/outside pa
   const binaryExec = async (_bin: string, args: readonly string[]) =>
     args[0] === 'rev-parse' ? { stdout: '/repo\n' } : { stdout: 'abc\u0000def' }
   assert.equal(await getGitHeadContentAsync('/repo/img.png', binaryExec), null)
-})
-
-test('TranslationService isolates per-caller AbortSignal on deduplicated inflight key', async () => {
-  let upstreamAborted = false
-  let release!: () => void
-  const gate = new Promise<void>((r) => { release = r })
-  const svc = new TranslationService({
-    cfg: () => defaultConfig(),
-    catalog: () => ({ source: 'fallback', models: [] }) as never,
-    getSession: () => undefined,
-    run: async (req: { signal?: AbortSignal; model: string }) => {
-      req.signal?.addEventListener('abort', () => { upstreamAborted = true })
-      await gate
-      return { ok: true, text: '你好世界', model: req.model }
-    },
-  } as never)
-
-  const acA = new AbortController()
-  const acB = new AbortController()
-  const pA = svc.translate({ text: 'Hello world from unit test' }, acA.signal)
-  const pB = svc.translate({ text: 'Hello world from unit test' }, acB.signal)
-
-  // Caller A cancels; caller B is still waiting -> upstream must NOT abort!
-  acA.abort()
-  const resA = await pA
-  assert.equal(resA.ok, false)
-  assert.equal(resA.code, 'ABORTED')
-  assert.equal(upstreamAborted, false)
-
-  release()
-  const resB = await pB
-  assert.equal(resB.ok, true)
-  assert.equal(resB.text, '你好世界')
 })
 
 test('SubagentTracker decodes split multi-byte UTF-8 characters across incremental reads cleanly', () => {
@@ -548,40 +472,6 @@ test('SubagentTracker decodes split multi-byte UTF-8 characters across increment
 
     assert.ok(events.some((t) => t.includes('已完成深度审计工作')), `expected intact UTF-8 line, got: ${JSON.stringify(events)}`)
     assert.equal(events.some((t) => t.includes('\ufffd')), false, 'must contain zero UTF-8 replacement characters')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('ImageService verifies cached path exists before returning cache hit', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-p2-img-'))
-  try {
-    let runs = 0
-    const imgFile1 = join(dir, 'out1.png')
-    // Minimal 1x1 valid PNG
-    const png1x1 = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-      'base64',
-    )
-    const svc = new ImageService({
-      cfg: () => ({ ...defaultConfig(), imageOutputDir: dir }),
-      bin: () => '/usr/bin/agy',
-      run: async () => {
-        runs++
-        writeFileSync(imgFile1, png1x1)
-        return { ok: true, text: imgFile1, toolCalls: [], subagents: [], durationMs: 10 }
-      },
-    })
-
-    const r1 = await svc.generate({ prompt: 'a red apple' })
-    assert.equal(r1.ok, true)
-    assert.equal(runs, 1)
-
-    // Delete the generated file -> cache must not return ghost path
-    rmSync(r1.path)
-    const r2 = await svc.generate({ prompt: 'a red apple' })
-    assert.equal(r2.ok, true)
-    assert.equal(runs, 2)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

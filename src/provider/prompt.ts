@@ -118,11 +118,11 @@ function resolveAddDirs(workspaceRoot: string, stagedDirs: string[], neutralAuxW
  */
 export async function buildPromptPlan(input: PromptPlanInput): Promise<PromptPlan> {
   const { options, cfg, ctx, policy, account, activeModel, deps } = input
-  const { isAux, isTranslateSession, translateSession, sessionKey, isImage, workspaceRoot, neutralAuxWorkspace } = ctx
+  const { isAux, sessionKey, isImage, workspaceRoot, neutralAuxWorkspace } = ctx
   const messages = options.messages
   const { lastAssistantIdx, trailingUser } = trailingSpanOf(messages)
-  const bindingKey = isTranslateSession && sessionKey !== '' ? `${sessionKey}#tsl` : sessionKey
-  const persistBinding = policy.persistBinding(isTranslateSession)
+  const bindingKey = sessionKey
+  const persistBinding = policy.persistBinding()
   const sessionAccountKey = account ? `${bindingKey}:${account.id}` : bindingKey
   const currentModel = activeModel === '' ? cfg.defaultModel : activeModel
 
@@ -132,10 +132,10 @@ export async function buildPromptPlan(input: PromptPlanInput): Promise<PromptPla
   })
   const stagedDirs: string[] = []
   const branch = buildBranchPrompt({
-    options, cfg, ctx, translateSession, isTranslateSession, isImage, binding, lastAssistantIdx, messages,
+    options, cfg, ctx, isImage, binding, lastAssistantIdx, messages,
   })
   let prompt = branch.prompt
-  const leadingSlash = !isAux && !isImage && !isTranslateSession ? extractLeadingAgySlash(prompt) : null
+  const leadingSlash = !isAux && !isImage ? extractLeadingAgySlash(prompt) : null
   if (leadingSlash) prompt = leadingSlash.rest
 
   let historicalStagedIds: string[] = []
@@ -335,8 +335,6 @@ interface BranchPromptInput {
   options: AgyGenerateOptions
   cfg: PluginConfig
   ctx: CallContext
-  translateSession: CallContext['translateSession']
-  isTranslateSession: boolean
   isImage: boolean
   binding: SessionBinding | undefined
   lastAssistantIdx: number
@@ -348,25 +346,12 @@ interface BranchPromptInput {
  * images). Returns the digest mode the chat branch still needs applied.
  */
 function buildBranchPrompt(input: BranchPromptInput): { prompt: string; digest: DigestMode } {
-  const { options, cfg, ctx, translateSession, isTranslateSession, isImage, binding, lastAssistantIdx, messages } = input
+  const { options, cfg, ctx, isImage, binding, lastAssistantIdx, messages } = input
   const imagePromptRaw = options.agyImagePrompt
   if (isImage) {
     // Verbatim: the CLI's bridge prompt already pins the tool arguments and
     // the machine-readable reply contract. No session context is mixed in.
     return { prompt: typeof imagePromptRaw === 'string' ? imagePromptRaw : '', digest: 'none' }
-  }
-  if (isTranslateSession) {
-    // The persona (role, the DSH session id, where its history lives and how to
-    // read it) travels with the FIRST message only. Once agy owns the
-    // conversation, every later translation is just the source text.
-    const lastMessage = messages[messages.length - 1] ?? messages[0]
-    const text = translateSession !== null && translateSession.text !== ''
-      ? translateSession.text
-      : lastMessage === undefined ? '' : textOf(lastMessage)
-    const prompt = binding === undefined && translateSession !== null
-      ? translateSession.setup + (translateSession.setup === '' ? '' : '\n\n=====\n\n') + text
-      : text
-    return { prompt, digest: 'none' }
   }
   if (ctx.isAux && options.purpose === 'compaction') {
     return { prompt: buildCompactionPrompt(messages, cfg.compactionMaxChars), digest: 'none' }

@@ -1,4 +1,4 @@
-// Issue #105: the two user-hideable affordances. Extracted from the runtime
+// Issue #105: the user-hideable affordance. Extracted from the runtime
 // settings rows so both the panel and its row builder stay under the size
 // budget; the switches are pure presentation — the single source of truth is
 // the /status snapshot (see .spec/ui-visibility.md).
@@ -13,7 +13,7 @@ interface VisibilityRowOptions {
 	t: Translator;
 	label: Parameters<Translator>[0];
 	desc: Parameters<Translator>[0];
-	key: 'showHeaderBadge' | 'showTranslateAction';
+	key: 'showHeaderBadge';
 	visible: boolean;
 	loadingAction: string | null;
 	setCfg: (key: string, value: unknown) => Promise<void>;
@@ -36,52 +36,6 @@ function visibilityRow(o: VisibilityRowOptions): unknown {
 			}, o.t('config.off')),
 		]),
 	});
-}
-
-/** Card under the reply, or the translation shown in the reply's place (display only). */
-function translateDisplayRow(o: {
-	t: Translator;
-	mode: 'card' | 'replace';
-	loadingAction: string | null;
-	setCfg: (key: string, value: unknown) => Promise<void>;
-}): unknown {
-	const busy = o.loadingAction === 'config:translateDisplay';
-	return h(Row, {
-		key: 'vis-translateDisplay',
-		left: rowCaption(o.t('config.translateDisplay'), o.t('config.translateDisplayDesc')),
-		right: segGroup([
-			h(Button, {
-				variant: o.mode === 'card' ? 'segActive' : 'seg',
-				disabled: busy,
-				onClick: () => void o.setCfg('translateDisplay', 'card'),
-			}, o.t('config.translateDisplayCard')),
-			h(Button, {
-				variant: o.mode === 'replace' ? 'segActive' : 'seg',
-				disabled: busy,
-				onClick: () => void o.setCfg('translateDisplay', 'replace'),
-			}, o.t('config.translateDisplayReplace')),
-		]),
-	});
-}
-
-/** Translation action button + card/replace display mode rows. */
-export function renderTranslateVisibilityRows(args: {
-	t: Translator;
-	status: StatusPayload;
-	loadingAction: string | null;
-	setCfg: (key: string, value: unknown) => Promise<void>;
-}): unknown[] {
-	const common = { t: args.t, loadingAction: args.loadingAction, setCfg: args.setCfg };
-	return [
-		visibilityRow({
-			...common,
-			label: 'config.showTranslateAction',
-			desc: 'config.showTranslateActionDesc',
-			key: 'showTranslateAction',
-			visible: args.status.showTranslateAction !== false,
-		}),
-		translateDisplayRow({ ...common, mode: args.status.translateDisplay === 'replace' ? 'replace' : 'card' }),
-	];
 }
 
 /** Conversation header badge visibility row. */
@@ -109,8 +63,5 @@ export function renderVisibilityRows(args: {
 	loadingAction: string | null;
 	setCfg: (key: string, value: unknown) => Promise<void>;
 }): unknown[] {
-	return [
-		renderHeaderBadgeRow(args),
-		...renderTranslateVisibilityRows(args),
-	];
+	return [renderHeaderBadgeRow(args)];
 }

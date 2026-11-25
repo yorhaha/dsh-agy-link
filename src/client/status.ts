@@ -44,8 +44,6 @@ export interface StatusPayload {
 	} | null;
 	backgroundWakeup?: boolean;
 	mcpBridge?: boolean;
-	imageTool?: boolean;
-	syncAccountCustomizations?: boolean;
 	workspaceRoot?: string;
 	defaultModel?: string;
 	defaultEffort?: string;
@@ -95,19 +93,8 @@ export interface StatusPayload {
 	warmupModels?: readonly string[];
 	warmupWindows?: 'weekly' | '5h' | 'both';
 	warmupMaxProbesPerRun?: number;
-	autoTranslate?: boolean;
-	translateDisplay?: 'card' | 'replace';
-	translateModel?: string;
-	translateEffort?: string;
 	showHeaderBadge?: boolean;
-	showTranslateAction?: boolean;
 	poolWideCatalog?: boolean;
-	imageModel?: string;
-	imageEffort?: string;
-	imageOutputDir?: string;
-	btwEnabled?: boolean;
-	btwModel?: string;
-	btwEffort?: string;
 	bindings?: number;
 	/**
 	 * Host summary of the most recent run. Diagnostic only: no client surface
@@ -200,7 +187,7 @@ function isStatusEqual(a: StatusPayload | null, b: StatusPayload | null): boolea
  */
 export function isUiVisible(
 	status: StatusPayload | null | undefined,
-	key: 'showHeaderBadge' | 'showTranslateAction',
+	key: 'showHeaderBadge',
 ): boolean {
 	return status?.[key] !== false
 }

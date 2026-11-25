@@ -2,7 +2,7 @@
 // entry config > defaults (spec ADR-13). The overrides file backs /agy
 // hot changes and survives restarts; the env is read per call so a changed
 // process environment is honored without reload.
-import { defaultConfig, type AgyTransportMode, type PermissionMode, type PluginConfig, type TranslateDisplayMode, type WarmupWindowMode } from './types.ts'
+import { defaultConfig, type AgyTransportMode, type PermissionMode, type PluginConfig,  type WarmupWindowMode } from './types.ts'
 import { MIN_WARMUP_INTERVAL_HOURS } from './timeouts.ts'
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -103,12 +103,6 @@ function asTransport(v: unknown): AgyTransportMode | undefined {
   return s === 'cli' || s === 'acp' ? s : undefined
 }
 
-function asTranslateDisplay(v: unknown): TranslateDisplayMode | undefined {
-  if (typeof v !== 'string') return undefined
-  const s = v.trim().toLowerCase()
-  return s === 'card' || s === 'replace' ? s : undefined
-}
-
 function asWarmupWindows(v: unknown): WarmupWindowMode | undefined {
   if (typeof v !== 'string') return undefined
   const s = v.trim().toLowerCase()
@@ -140,8 +134,6 @@ export function resolveConfig(
     agent: asString(get('agent')) ?? base.agent,
     agySettings: asString(get('agySettings')) ?? base.agySettings,
     transport: asTransport(get('transport')) ?? base.transport,
-    imageTool: asBool(get('imageTool')) ?? base.imageTool,
-    syncAccountCustomizations: asBool(get('syncAccountCustomizations')) ?? base.syncAccountCustomizations,
     mediaMaxFileBytes: asNum(get('mediaMaxFileBytes')) ?? base.mediaMaxFileBytes,
     defaultModel: asString(get('defaultModel')) ?? base.defaultModel,
     defaultEffort: asString(get('defaultEffort')) ?? base.defaultEffort,
@@ -205,30 +197,8 @@ export function resolveConfig(
     warmupTimezone: asString(get('warmupTimezone')) ?? base.warmupTimezone,
     warmupIntervalHours: asNum(get('warmupIntervalHours')) ?? base.warmupIntervalHours,
     warmupMaxProbesPerRun: asNum(get('warmupMaxProbesPerRun')) ?? base.warmupMaxProbesPerRun,
-    autoTranslate: asBool(get('autoTranslate')) ?? base.autoTranslate,
-    translateDisplay: asTranslateDisplay(get('translateDisplay')) ?? base.translateDisplay,
-    translateModel: asString(get('translateModel')) ?? base.translateModel,
-    translateEffort: asString(get('translateEffort')) ?? base.translateEffort,
-    translateTargetLanguage: asString(get('translateTargetLanguage')) ?? base.translateTargetLanguage,
-    translateMaxChars: asNum(get('translateMaxChars')) ?? base.translateMaxChars,
-    translateMaxTokens: asNum(get('translateMaxTokens')) ?? base.translateMaxTokens,
-    translateTimeoutMs: asNum(get('translateTimeoutMs')) ?? base.translateTimeoutMs,
-    translateRetries: asNum(get('translateRetries')) ?? base.translateRetries,
-    translateSkipSameModel: asBool(get('translateSkipSameModel')) ?? base.translateSkipSameModel,
-    translateBindConversation: asBool(get('translateBindConversation')) ?? base.translateBindConversation,
-    translateMinIntervalMs: asNum(get('translateMinIntervalMs')) ?? base.translateMinIntervalMs,
     showHeaderBadge: asBool(get('showHeaderBadge')) ?? base.showHeaderBadge,
-    showTranslateAction: asBool(get('showTranslateAction')) ?? base.showTranslateAction,
     poolWideCatalog: asBool(get('poolWideCatalog')) ?? base.poolWideCatalog,
-    imageModel: asString(get('imageModel')) ?? base.imageModel,
-    imageEffort: asString(get('imageEffort')) ?? base.imageEffort,
-    imageTimeoutMs: asNum(get('imageTimeoutMs')) ?? base.imageTimeoutMs,
-    imageMaxBytes: asNum(get('imageMaxBytes')) ?? base.imageMaxBytes,
-    imageOutputDir: asString(get('imageOutputDir')) ?? base.imageOutputDir,
-    imageRetries: asNum(get('imageRetries')) ?? base.imageRetries,
-    btwEnabled: asBool(get('btwEnabled')) ?? base.btwEnabled,
-    btwModel: asString(get('btwModel')) ?? base.btwModel,
-    btwEffort: asString(get('btwEffort')) ?? base.btwEffort,
     backgroundWakeup: asBool(get('backgroundWakeup')) ?? base.backgroundWakeup,
     backgroundWakeupTtlMinutes: asNum(get('backgroundWakeupTtlMinutes')) ?? base.backgroundWakeupTtlMinutes,
     backgroundWakeupMaxPerSession: asNum(get('backgroundWakeupMaxPerSession')) ?? base.backgroundWakeupMaxPerSession,
@@ -253,14 +223,6 @@ export function resolveConfig(
   if (env.DSH_AGY_TRANSPORT) {
     const t = asTransport(env.DSH_AGY_TRANSPORT)
     if (t) cfg.transport = t
-  }
-  if (env.DSH_AGY_IMAGE_TOOL !== undefined) {
-    const it = asBool(env.DSH_AGY_IMAGE_TOOL)
-    if (it !== undefined) cfg.imageTool = it
-  }
-  if (env.DSH_AGY_SYNC_CUSTOMIZATIONS !== undefined) {
-    const sc = asBool(env.DSH_AGY_SYNC_CUSTOMIZATIONS)
-    if (sc !== undefined) cfg.syncAccountCustomizations = sc
   }
   if (env.DSH_AGY_MEDIA_MAX_FILE_BYTES) {
     const v = asNum(env.DSH_AGY_MEDIA_MAX_FILE_BYTES)
@@ -382,45 +344,14 @@ export function resolveConfig(
   }
   cfg.warmupIntervalHours = clampWarmupIntervalHours(cfg.warmupIntervalHours)
   cfg.warmupMaxProbesPerRun = Math.min(200, Math.max(0, Math.floor(cfg.warmupMaxProbesPerRun)))
-  if (env.DSH_AGY_AUTO_TRANSLATE !== undefined) {
-    const at = asBool(env.DSH_AGY_AUTO_TRANSLATE)
-    if (at !== undefined) cfg.autoTranslate = at
-  }
-  if (env.DSH_AGY_TRANSLATE_MODEL) cfg.translateModel = env.DSH_AGY_TRANSLATE_MODEL
-  if (env.DSH_AGY_TRANSLATE_EFFORT) cfg.translateEffort = env.DSH_AGY_TRANSLATE_EFFORT
-  if (env.DSH_AGY_TRANSLATE_LANG) cfg.translateTargetLanguage = env.DSH_AGY_TRANSLATE_LANG
-  const td = asTranslateDisplay(env.DSH_AGY_TRANSLATE_DISPLAY)
-  if (td !== undefined) cfg.translateDisplay = td
   if (env.DSH_AGY_SHOW_HEADER_BADGE !== undefined) {
     const shb = asBool(env.DSH_AGY_SHOW_HEADER_BADGE)
     if (shb !== undefined) cfg.showHeaderBadge = shb
-  }
-  if (env.DSH_AGY_SHOW_TRANSLATE_ACTION !== undefined) {
-    const sta = asBool(env.DSH_AGY_SHOW_TRANSLATE_ACTION)
-    if (sta !== undefined) cfg.showTranslateAction = sta
   }
   if (env.DSH_AGY_POOL_WIDE_CATALOG !== undefined) {
     const pwc = asBool(env.DSH_AGY_POOL_WIDE_CATALOG)
     if (pwc !== undefined) cfg.poolWideCatalog = pwc
   }
-  if (env.DSH_AGY_IMAGE_MODEL) cfg.imageModel = env.DSH_AGY_IMAGE_MODEL
-  if (env.DSH_AGY_IMAGE_EFFORT) cfg.imageEffort = env.DSH_AGY_IMAGE_EFFORT
-  if (env.DSH_AGY_IMAGE_TIMEOUT_MS) {
-    const v = asNum(env.DSH_AGY_IMAGE_TIMEOUT_MS)
-    if (v !== undefined) cfg.imageTimeoutMs = v
-  }
-  if (env.DSH_AGY_IMAGE_MAX_BYTES) {
-    const v = asNum(env.DSH_AGY_IMAGE_MAX_BYTES)
-    if (v !== undefined) cfg.imageMaxBytes = v
-  }
-  if (env.DSH_AGY_IMAGE_OUTPUT_DIR) cfg.imageOutputDir = env.DSH_AGY_IMAGE_OUTPUT_DIR
-  if (env.DSH_AGY_IMAGE_RETRIES) {
-    const v = asNum(env.DSH_AGY_IMAGE_RETRIES)
-    if (v !== undefined) cfg.imageRetries = v
-  }
-  if (env.DSH_AGY_BTW_ENABLED !== undefined) cfg.btwEnabled = asBool(env.DSH_AGY_BTW_ENABLED) ?? cfg.btwEnabled
-  if (env.DSH_AGY_BTW_MODEL !== undefined) cfg.btwModel = env.DSH_AGY_BTW_MODEL
-  if (env.DSH_AGY_BTW_EFFORT !== undefined) cfg.btwEffort = env.DSH_AGY_BTW_EFFORT
   if (env.DSH_AGY_CLOAK_SYSTEM_PROMPT !== undefined) {
     const csp = asBool(env.DSH_AGY_CLOAK_SYSTEM_PROMPT)
     if (csp !== undefined) cfg.cloakSystemPrompt = csp

@@ -5,7 +5,7 @@
 // a fresh model turn to re-read them is pure waste (and on a busy session it
 // doubles the visible reply). The host instead persists them as plugin session
 // records and this Definition projects each one into a chat node, exactly like
-// the translation card does — the text stays visible, the transcript stays
+// a persisted card does — the text stays visible, the transcript stays
 // append-only, and nothing enters the model-visible surface.
 
 import { h, registerConversationDefinitions, win, type ClientContextLike } from './translate-context.ts'

@@ -1,11 +1,10 @@
 // Deferred, best-effort housekeeping that must NOT run on the plugin-load path.
 //
 // Everything here used to run inline from runBootHygiene(): sweeping staging
-// dirs, pruning old logs, mirroring the whole ecosystem into every isolated
-// account home, and (implicitly) leaving agy's per-conversation presence locks
-// and orphaned MCP servers behind. On a pool of 8 accounts that is a few
-// hundred file stats plus a full ecosystem copy before the first frame, and the
-// leftovers accumulate on every start.
+// dirs, pruning old logs, and (implicitly) leaving agy's per-conversation
+// presence locks and orphaned MCP servers behind. On a pool of 8 accounts that
+// is a few hundred file stats before the first frame, and the leftovers
+// accumulate on every start.
 //
 // The rule now: at boot, only do what a turn immediately depends on
 // (credentials, store hygiene). Everything else waits for an idle moment, runs
@@ -131,7 +130,6 @@ export interface MaintenanceDeps {
   accounts: () => readonly ManagedAccount[]
   sweepStaging: () => number
   sweepLogs: () => number
-  syncEcosystem?: () => void
   log: (msg: string) => void
   /** Opt-out for operators who do not want the plugin touching any process. */
   reapOrphans: boolean
@@ -175,11 +173,6 @@ export function runMaintenancePass(deps: MaintenanceDeps): { presence: number; s
     } catch {
       reaped = []
     }
-  }
-  try {
-    deps.syncEcosystem?.()
-  } catch {
-    // ignore
   }
   const parts: string[] = []
   if (presence > 0) parts.push(presence + ' stale presence lock(s)')

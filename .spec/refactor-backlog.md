@@ -12,7 +12,6 @@
 | 模块 | 行数（抽取前） | 可抽出的职责 | 状态 |
 | --- | --- | --- | --- |
 | `src/provider/mapper/event-mapper.ts` | 599 | `formatRunningToolFallback`（纯函数） | **已抽出** → `running-tool-fallback.ts`（575 行） |
-| `src/features/translation/service.ts` | 599 | 4 个纯 helper（错误映射 / 空结果 / 模型名比较） | **已抽出** → `translation/helpers.ts`（567 行） |
 | `src/features/subagent/tracker.ts` | 599 | 日志尾部跟随与状态机可分离 | 待办 |
 | `src/features/background/watcher.ts` | 599 | 定时器调度与唤醒判定可分离 | 待办 |
 | `src/features/acp/pool.ts` | 599 | 驱逐策略（`shouldEvict` 一族）可独立 | 待办 |
@@ -32,6 +31,6 @@
 
 ## 重复实现（比体积更该处理）
 
-- **`delay(ms[, signal])` 在 13 个文件里各写一遍**（`host/models`、`host/services`、`quota/freshness`、`acp/pool`、`acp/run-attempt`、`warmup/schedule`、`provider/mapper/event-mapper`、`provider/retry-policy`、`provider/failover-budget`、`common/pool-types`、`domain/quota/identity`、`client/mermaid-render`、`translation/service`）。多数是 `new Promise(r => setTimeout(r, ms))`，但**并非全部等价**（部分带 `AbortSignal` 且 abort 后 resolve 而非 reject）。
+- **`delay(ms[, signal])` 在 13 个文件里各写一遍**（`host/models`、`host/services`、`quota/freshness`、`acp/pool`、`acp/run-attempt`、`warmup/schedule`、`provider/mapper/event-mapper`、`provider/retry-policy`、`provider/failover-budget`、`common/pool-types`、`domain/quota/identity`、`client/mermaid-render`）。多数是 `new Promise(r => setTimeout(r, ms))`，但**并非全部等价**（部分带 `AbortSignal` 且 abort 后 resolve 而非 reject）。
   - 收敛到 `src/common/async.ts` 的正确做法：先逐个确认语义（是否接受 signal、abort 后 resolve/reject、`ms <= 0` 是否立即返回），再统一；**不要**一次性替换成"最像的那个"。
   - 优先级：中。属于一致性收益，不是缺陷。

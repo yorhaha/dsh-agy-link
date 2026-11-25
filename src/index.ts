@@ -14,11 +14,8 @@ import { fileURLToPath } from 'node:url'
 import { PROVIDER_ID } from './common/types.ts'
 import { AUTH_FAST_REVERIFY_MS } from './common/pool-types.ts'
 import { defineAgyAskTool } from './host/ask-tool.ts'
-import { defineAgyImageTool } from './host/image-tool.ts'
 import { agyCommandDefinition, buildAgyCommandDeps } from './host/commands.ts'
 import { agySlashCommandDefinitions } from './host/agy-slash-commands.ts'
-import { btwCommandDefinition } from './host/btw-command.ts'
-import { tslCommandDefinition } from './host/tsl-command.ts'
 import { defineAgyMirrorTool, MIRROR_TOOL_NAME } from './host/mirror-tool.ts'
 import type { ToolExecution, PreToolDecision } from '@deepseek-ai/dsh-tools'
 import { MIN_AGY_VERSION, compareVersions, isolatedHomeEnv } from './host/runner.ts'
@@ -42,8 +39,8 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   const services = createHostServices(ctx, entryConfig)
   const {
     getConfig, log, bin, version, store, pool, quota, warmup, catalog, auth, poolAuth, runs,
-    adapter, acpPool, ecosystem, imageService, translation, btw, setOverride, notifyPicker, readEffortUnsupported, rememberEffortUnsupported,
-    sessionsSvc, sessionAuto, mediaDir, bridgeState, webServerPort,
+    adapter, acpPool, setOverride, notifyPicker, readEffortUnsupported, rememberEffortUnsupported,
+    sessionsSvc, mediaDir, bridgeState, webServerPort,
   } = services
 
   observeBridgeAssemblies(ctx, services.bridgeSteps)
@@ -51,15 +48,14 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   // Boot-time pool/store hygiene: stale staging logs, keychains, credential slot.
   runBootHygiene(services)
 
-  // Everything expensive (staging/log sweeps, the ecosystem mirror, stale presence
-  // locks, orphaned MCP servers) is deferred to one idle pass: a pool of 8 accounts
-  // otherwise pays hundreds of file stats plus a full copy per account before the
-  // first frame, and leaves the previous run's MCP children behind.
+  // Everything expensive (staging/log sweeps, stale presence locks, orphaned MCP
+  // servers) is deferred to one idle pass: a pool of 8 accounts otherwise pays
+  // hundreds of file stats before the first frame, and leaves the previous run's
+  // MCP children behind.
   const stopBootMaintenance = scheduleBootMaintenance({
     accounts: () => services.pool.getAccounts(),
     sweepStaging: () => services.pool.sweepStaleStaging(),
     sweepLogs: () => services.pool.sweepOldLogs(getConfig().logRetentionDays),
-    ...(getConfig().syncAccountCustomizations ? { syncEcosystem: () => services.ecosystem?.syncAll() } : {}),
     log,
     reapOrphans: getConfig().reapOrphanMcp,
   })
@@ -196,7 +192,7 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   // settings directory; registering here would put an unconfigured
   // antigravity into the provider-add list and confuse the UI state.
 
-  // ---- /agy, /tsl, /atw, and full a-prefix slash bridge commands ----
+  // ---- /agy and full a-prefix slash bridge commands ----
   const agyDeps = buildAgyCommandDeps({
     services,
     goals: () => (ctx.get('goals') as GoalServiceLike | undefined) ?? ((ctx as unknown as { goals?: GoalServiceLike }).goals),
@@ -211,65 +207,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
     ctx.commands.register(def)
   }
 
-  // Opt-out (issue #201): a user who already runs a dedicated /btw plugin can
-  // turn this one off so the two never compete for a command name. Read at
-  // registration time, so the switch takes effect on the next start.
-  if (getConfig().btwEnabled !== false) {
-    ctx.commands.register(
-      btwCommandDefinition({
-        btw: () => btw,
-        isWebActive: () => webServerPort.current !== undefined,
-      }),
-    )
-  }
-
-  // ---- /tsl command (Gemini plain-language translation) ----
-  ctx.commands.register(
-    tslCommandDefinition({
-      cfg: getConfig,
-      translate: () => translation,
-      setOverride,
-      sessionAuto: {
-        get: (id) => sessionAuto.get(id),
-        set: (id, value) => {
-          if (value === undefined) sessionAuto.delete(id)
-          else sessionAuto.set(id, value)
-        },
-      },
-      sessions: () => sessionsSvc(),
-    }),
-  )
-
-  // ---- automatic post-turn translation ----
-  // Reacts to the durable turn boundary, never to a render event. The append
-  // of the translation record happens after the awaited model call, so it can
-  // never reenter the session's publication boundary (Session.append refuses
-  // that); a listener must not append synchronously here.
-  ctx.effect(() => {
-    const unlisten = ctx.on(
-      'session/event',
-      (subject: unknown, event: unknown) => {
-        try {
-          const ev = event as { type?: string; data?: { turn?: unknown; reason?: { kind?: string } } } | null
-          if (ev === null || ev.type !== 'turn/end') return
-          if (ev.data?.reason?.kind !== 'completed') return
-          const turn = ev.data?.turn
-          if (typeof turn !== 'number') return
-          const session = subject as { id?: unknown } | null
-          const id = session?.id === undefined || session?.id === null ? '' : String(session.id)
-          if (id === '') return
-          void translation.autoTranslateTurn(id, turn).catch(() => undefined)
-        } catch {
-          // contained: a translation failure must never disturb the agent loop
-        }
-      },
-      { global: true },
-    )
-    return () => {
-      if (typeof unlisten === 'function') unlisten()
-    }
-  })
-
   // ---- tool registrations (agy_ask + the agy_tool mirror) ----
   // The tools service is reached through a reactive ctx.inject sub-fiber:
   // at plugin load time it may not exist yet (the same load-order race the
@@ -280,7 +217,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   let pluginDisposing = false
   const toolsSvcRef: { current: { register: (t: unknown) => unknown; get?: (name: string, scope?: unknown) => unknown } | null } = { current: null }
   const askToolDispose = { current: null as null | (() => void) }
-  const imageToolDispose = { current: null as null | (() => void) }
   const mirrorToolDispose = { current: null as null | (() => void) }
   const preExecuteDispose = { current: null as null | (() => void) }
   const resolveAgentsSvc = (): { get(id: unknown): unknown } | undefined => {
@@ -325,21 +261,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
       askToolDispose.current = null
     }
   }
-  const syncImageTool = (): void => {
-    const want = getConfig().enabled && getConfig().imageTool && bin() !== null
-    if (want && imageToolDispose.current === null && toolsSvcRef.current) {
-      const reg = toolsSvcRef.current.register(
-        defineAgyImageTool({
-          imageService: () => imageService,
-          log,
-        }),
-      ) as unknown as () => void
-      imageToolDispose.current = typeof reg === 'function' ? reg : null
-    } else if (!want && imageToolDispose.current !== null) {
-      imageToolDispose.current()
-      imageToolDispose.current = null
-    }
-  }
   // The mirror rides the agent loop for native tool-card rendering: the
   // adapter's spans cut on completed agy tool steps with finish:tool-calls
   // addressed here, and the loop's dispatch writes the real tool/call +
@@ -358,7 +279,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   ctx.inject(['tools'], (sub) => {
     toolsSvcRef.current = sub.get('tools') as { register: (t: unknown) => unknown }
     syncAskTool()
-    syncImageTool()
     syncMirrorTool()
     // Bypass auto-review and permission prompt gates for the synthetic agy_tool mirror:
     // agy_tool only replays in-memory stdout already executed by agy in the previous step.
@@ -381,8 +301,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
       preExecuteDispose.current = null
       if (askToolDispose.current !== null) askToolDispose.current()
       askToolDispose.current = null
-      if (imageToolDispose.current !== null) imageToolDispose.current()
-      imageToolDispose.current = null
       if (mirrorToolDispose.current !== null) mirrorToolDispose.current()
       mirrorToolDispose.current = null
       toolsSvcRef.current = null
@@ -396,7 +314,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
     void value
     syncAdapterRegistration()
     syncAskTool()
-    syncImageTool()
     syncMirrorTool()
     syncMcpBridge()
   }
@@ -561,13 +478,10 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
       pluginDisposing = true
       bridgeDisposed = true
       services.backgroundWakeup.dispose()
-      services.translationWorkers?.dispose()
-      services.btw.dispose()
       acpPool.dispose()
       auth.dispose()
       void poolAuth.cancel()
       if (askToolDispose.current !== null) askToolDispose.current()
-      if (imageToolDispose.current !== null) imageToolDispose.current()
       if (mirrorToolDispose.current !== null) mirrorToolDispose.current()
       void teardownBridgeState(bridgeState)
       void closeProxyAgents()

@@ -8,7 +8,7 @@ Each invariant below is enforced in code AND covered by a regression test.
 ## MCP reverse bridge (`src/host/mcp-bridge.ts`, `src/host/bridge.mjs`)
 
 - The installed reverse bridge requires a per-session route and a live DSH provider step. Its catalog uses the model-facing schemas for that step. Execution uses the originating agent, admitted tool set and cancellation signal.
-- `mcpToolAllowlist` further restricts both discovery and execution, including PTC inner tools. The PTC executor `run_code` is exposed when the host projects it. The recursive AGY helpers `agy_ask`, `agy_tool` and `agy_image` are excluded.
+- `mcpToolAllowlist` further restricts both discovery and execution, including PTC inner tools. The PTC executor `run_code` is exposed when the host projects it. The recursive AGY helpers `agy_ask` and `agy_tool` are excluded.
 - Distinct DSH names that normalize to the same MCP name are disambiguated with a
   stable `__<n>` suffix, never silently dropped; `bridge.mjs` calls back by exact
   `dshName`. (test: `test/v02.test.ts`)
@@ -80,16 +80,6 @@ so they are gated more strictly than the console routes:
   URLs, `Bearer`, and auth-carrying headers (`Authorization`/`Cookie`/`X-Api-Key`).
   (tests: `test/fix-review.test.ts`)
 - The report is written owner-only: directory `0700`, file `0600`. (test: `test/doctor-perms.test.ts`)
-
-## Image CLI (`dsh-agy-image`, `src/cli/image.ts` + `src/features/image/index.ts`)
-
-- No HTTP surface: the image feature is a CLI only, so it adds no reachable
-  plugin route.
-- A result is `ok: true` only after the artifact passes the magic-byte sniff,
-  dimension parsing, `imageMaxBytes` bound and (when requested) a 3% aspect-ratio
-  check; a model reply alone can never claim success.
-- `--out` is an explicit user path (the same privilege the user's own shell has);
-  no output path is derived from model output.
 
 ## Media, Asset & Local-File Opener Routes (`src/host/media-route.ts`, `src/transport/http/routes/media.ts`)
 
@@ -198,12 +188,6 @@ so they are gated more strictly than the console routes:
 - 仅允许 `.html` / `.htm` 正规文件，大小上限 **2 MiB**（超限返回 `413`），跨站 `Origin` 拦截与工作区/staging 根目录限制（`isCrossOriginBlocked` / `isConfinementAllowed`）与 `/media` 完全对齐。
 - 响应强制 `Cache-Control: private, no-store`、`X-Content-Type-Options: nosniff` 及严格 CSP（`default-src 'none'; connect-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; script-src 'unsafe-inline' https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js`）。
 - 注入的 `postMessage` 桥接脚本对 `id` 参数做 `[a-zA-Z0-9_-]{1,64}` 清洗，前端渲染于 `<iframe sandbox="allow-scripts">` 且校验证 `ev.source === frame.contentWindow`。（测试：`test/http-contract.test.ts`, `test/extended-ui-and-embed.test.ts`）
-
-## 多账号定制生态白名单同步（`src/features/ecosystem/sync.ts`, `inventory.ts`）
-
-- 只按显式白名单从主账号 `~/.gemini/config` 同步 `plugins/`、`skills/`、`rules/`、`agents/` 与允许配置文件；**永不触碰**凭据、日志、对话或 Keychain。
-- 显式拒绝敏感文件名（`.env*`、`antigravity-oauth-token*`、`.primary-credential.json`、`id_rsa`、`id_ed25519`、`*.pem`、`*.key`），并拒绝指向 `primaryHome` 之外的符号链接。
-- `mergeMcpConfig()` 同步主账号其余 MCP 服务器时**严格保留目标账号自身的 `dsh-tools` 反向桥接配置**；`EcosystemService.setPluginEnabled()` 校验 `pluginId` 拒绝路径穿越；`inspectEcosystem()` 对 HTTP MCP URL 中的用户名/密码做脱敏。（测试：`test/ecosystem.test.ts`）
 
 ## 系统打开器只接受确实存在的目标（PR #159）
 

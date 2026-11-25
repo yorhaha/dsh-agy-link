@@ -10,8 +10,6 @@ import { defaultConfig } from '../src/common/types.ts'
 import { installAgentEmbedRenderer } from '../src/client/embed.ts'
 import { bindTranslator, resetTranslatorForTest } from '../src/client/i18n-bridge.ts'
 import { enhanceAudioLink } from '../src/client/images/audio.ts'
-import { EcosystemPanel } from '../src/client/sections/EcosystemPanel.ts'
-import { renderImageRow } from '../src/client/sections/ImageSettingsRows.ts'
 import { RuntimeControlsSection } from '../src/client/sections/RuntimeControlsRows.ts'
 import { WarmupStatusBar } from '../src/client/sections/WarmupStatusBar.ts'
 import { CardBody } from '../src/client/toolview/card-bodies.ts'
@@ -24,8 +22,6 @@ import { rewriteAgentEmbeds, splitPendingEmbedFragment } from '../src/provider/m
 
 const nodeRequire = createRequire(import.meta.url)
 const { JSDOM } = nodeRequire('jsdom') as { JSDOM: new (html?: string, opts?: Record<string, unknown>) => any }
-const ReactDOMClient = nodeRequire('react-dom/client') as any
-const testUtils = nodeRequire('react-dom/test-utils') as any
 const createElement = (React as { createElement: (type: unknown, props?: unknown, ...children: unknown[]) => unknown }).createElement
 
 function fakeRes() {
@@ -302,39 +298,7 @@ test('extended toolview models & CardBody render image-generator, swarm, workflo
   }
 })
 
-test('client sections (EcosystemPanel, RuntimeControlsRows, ImageSettingsRows, WarmupStatusBar) render cleanly across states', withDom(async () => {
-  const calls: Array<{ url: string; method: string; body?: unknown }> = []
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    writable: true,
-    value: async (url: string, init?: { method?: string; body?: string }) => {
-      const method = init?.method ?? 'GET'
-      const body = init?.body ? JSON.parse(init.body) : undefined
-      calls.push({ url, method, body })
-      if (url.includes('/ecosystem/sync')) {
-        return { ok: true, status: 200, json: async () => ({ ok: true, report: { syncedAccounts: ['acc_2'], copiedFiles: 2, removedFiles: 0 }, snapshot: { primaryHome: '/h', plugins: [{ id: 'p1', name: 'Plugin1', enabled: true, source: 'global', hasMcp: false, hasHooks: false, skillCount: 1, ruleCount: 0, path: '/p1' }], mcpServers: [{ name: 'srv', transport: 'stdio', target: 'npx x', disabled: false, source: 'global' }], skills: [{ name: 'sk1', description: '', source: 'global', path: '/s' }], rules: [{ name: 'AGENTS.md', path: '/r', bytes: 10, source: 'global' }], agents: [{ name: 'rev', description: 'Reviewer', source: 'global', path: '/a' }], syncedAccountCount: 1, lastSyncAt: 1 } }) }
-      }
-      if (url.includes('/ecosystem/plugin')) {
-        return { ok: true, status: 200, json: async () => ({ ok: true, snapshot: { primaryHome: '/h', plugins: [{ id: 'p1', name: 'Plugin1', enabled: false, source: 'global', hasMcp: false, hasHooks: false, skillCount: 1, ruleCount: 0, path: '/p1' }], mcpServers: [], skills: [], rules: [], agents: [], syncedAccountCount: 1, lastSyncAt: 1 } }) }
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          ok: true,
-          primaryHome: '/h',
-          plugins: [{ id: 'p1', name: 'Plugin1', enabled: true, source: 'global', hasMcp: false, hasHooks: false, skillCount: 1, ruleCount: 0, path: '/p1' }],
-          mcpServers: [{ name: 'srv', transport: 'stdio', target: 'npx x', disabled: false, source: 'global' }],
-          skills: [{ name: 'sk1', description: '', source: 'global', path: '/s' }],
-          rules: [{ name: 'AGENTS.md', path: '/r', bytes: 10, source: 'global' }],
-          agents: [{ name: 'rev', description: 'Reviewer', source: 'global', path: '/a' }],
-          syncedAccountCount: 0,
-          lastSyncAt: null,
-        }),
-      }
-    },
-  })
-
+test('client sections (RuntimeControlsRows, WarmupStatusBar) render cleanly across states', withDom(async () => {
   {
     const t = ((k: string, p?: Record<string, unknown>) => (p ? `${k}:${JSON.stringify(p)}` : k)) as never
     const cfgWrites: Array<[string, unknown]> = []
@@ -345,27 +309,12 @@ test('client sections (EcosystemPanel, RuntimeControlsRows, ImageSettingsRows, W
       sandbox: true,
       transport: 'acp' as const,
       acpStatus: { activeProcesses: 1, sessions: 2, keys: [] },
-      imageTool: true,
-      syncAccountCustomizations: true,
       agent: 'rev',
-      imageModel: 'gemini-4-hydrogen',
-      imageEffort: 'medium',
     }
 
     const runtimeHtml = renderToStaticMarkup(createElement(RuntimeControlsSection as never, { t, status, loadingAction: null, setCfg }))
     assert.match(runtimeHtml, /config\.acpStats/)
     assert.match(runtimeHtml, /config\.permissionMode/)
-
-    const imageRowHtml = renderToStaticMarkup(createElement('div', null, renderImageRow(
-      t,
-      status,
-      [{ id: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen', efforts: ['low', 'medium', 'high'] }],
-      null,
-      setCfg,
-      () => {},
-      { auto: 'auto', level: (x: string) => x },
-    )))
-    assert.match(imageRowHtml, /dsh-agy-image/)
 
     const runningBar = renderToStaticMarkup(createElement(WarmupStatusBar as never, {
       t,
@@ -384,31 +333,5 @@ test('client sections (EcosystemPanel, RuntimeControlsRows, ImageSettingsRows, W
     }))
     assert.match(lastRunBar, /warmup\.lastRun/)
 
-    // Mount EcosystemPanel in JSDOM to exercise fetch, expand, sync, and plugin toggle
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = ReactDOMClient.createRoot(container)
-    await testUtils.act(async () => {
-      root.render(createElement(EcosystemPanel as never, { t, currentAgent: 'rev', loadingAction: null, setCfg, showToast: () => {} }))
-      await new Promise((r) => setTimeout(r, 20))
-    })
-    const buttons = Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]
-    const expandBtn = buttons.find((b) => b.textContent === 'eco.expand')
-    assert.ok(expandBtn)
-    await testUtils.act(async () => { expandBtn.click() })
-    assert.match(container.textContent ?? '', /Plugin1/)
-    assert.match(container.textContent ?? '', /eco\.activeAgent/)
-
-    const syncBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) => b.textContent === 'eco.syncNow')
-    assert.ok(syncBtn)
-    await testUtils.act(async () => { syncBtn.click(); await new Promise((r) => setTimeout(r, 15)) })
-    assert.ok(calls.some((c) => c.url.includes('/ecosystem/sync')))
-
-    const toggleBtn = (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).find((b) => b.textContent === 'config.on')
-    assert.ok(toggleBtn)
-    await testUtils.act(async () => { toggleBtn.click(); await new Promise((r) => setTimeout(r, 15)) })
-    assert.ok(calls.some((c) => c.url.includes('/ecosystem/plugin')))
-
-    await testUtils.act(async () => { root.unmount() })
   }
 }))

@@ -41,7 +41,7 @@ DSH 的 `normalizeUsage()`（宿主 `dsh-token-meter`）要求：`totalTokens` �
 
 - **单次调用优先**：`RunRecording.finalUsage()` 在有 `step` 样本时必须返回该样本；`consumeSpanUsage()` 在本轮已发过样本、但最终信封只有累计值时返回 `null`（宁可不发，也不把累计值当上下文）。
 - **transcript 尾巴重试**：prompt 返回后若还没读到新样本，最多重试 4×40ms（agy 异步落盘），确保最后一跳的单次计数生效。
-- **辅助调用中性工作区**：`session-title` / `compaction` / `translation` 在 `cfg.auxNeutralWorkspace`（默认 true）下跑在 `<state>/agy-link/aux-cwd`，不带 `--add-dir`，避免加载项目 GEMINI.md/AGENTS.md（每次省 1–2 万 token，且前缀稳定可命中）。显式 `workspaceRoot` 优先。
+- **辅助调用中性工作区**：`session-title` / `compaction` 在 `cfg.auxNeutralWorkspace`（默认 true）下跑在 `<state>/agy-link/aux-cwd`，不带 `--add-dir`，避免加载项目 GEMINI.md/AGENTS.md（每次省 1–2 万 token，且前缀稳定可命中）。显式 `workspaceRoot` 优先。
 - **原子切模型**：会话响应带 `models.availableModels` 且存在 `${model}-${effort}` 时，用一次 `session/set_model` 完成切换；否则回退 `set_config_option(model) → thought_level` 两步。失败即回退。
 - **每轮缓存日志**：`[cache] hit=..% ctx=.. in=.. cr=.. cw=.. out=.. reason=<none|new-session|resume|rebuild|account-switch|model-switch|idle|retry|aux>`，reason 由 `cache-stats.ts` 纯函数判定，优先级见 `classifyCacheReason`。
 - **报表出口**：内存按本地日聚合（保留 14 天，`host/cache-metrics.ts`）。`GET /plugins/agy-link/status` 返回 `cacheStats`（today / days / last / lastBySession）；`/agy cache-stats`（别名 `/agy cache`）打印逐日命中率与原因占比；`/agy status` 附一行今日摘要。只在进程内，不落盘、不计费。

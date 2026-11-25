@@ -50,7 +50,6 @@ const PREFIX_TEST_MAP = [
   ['src/features/warmup/', ['test/warmup.test.ts', 'test/http-contract.test.ts']],
   ['src/features/translation/', ['test/translate.test.ts']],
   ['src/features/btw/', ['test/btw.test.ts']],
-  ['src/features/image/', ['test/image.test.ts', 'test/image-cli.test.ts']],
   ['src/features/ecosystem/', ['test/ecosystem.test.ts', 'test/http-contract.test.ts']],
   ['src/features/subagent/', ['test/subagent-tracker.test.ts']],
   ['src/provider/mapper/', ['test/mapper.test.ts']],

@@ -9,7 +9,7 @@ export interface PurposePolicy {
   readonly pinLowEffort: boolean
   /** Mirror agy tool steps as native DSH tool cards. */
   readonly mirrorTools: boolean
-  persistBinding(isTranslateSession: boolean): boolean
+  persistBinding(): boolean
 }
 
 const BACKGROUND: PurposePolicy = {
@@ -26,13 +26,6 @@ const CHAT: PurposePolicy = {
   persistBinding: () => true,
 }
 
-const TRANSLATION: PurposePolicy = {
-  aux: true,
-  pinLowEffort: false,
-  mirrorTools: false,
-  persistBinding: (hasSession) => hasSession,
-}
-
 const IMAGE: PurposePolicy = {
   aux: true,
   pinLowEffort: false,
@@ -44,7 +37,6 @@ const BY_PURPOSE: Record<CallPurpose, PurposePolicy> = {
   chat: CHAT,
   compaction: BACKGROUND,
   'session-title': BACKGROUND,
-  translation: TRANSLATION,
   image: IMAGE,
 }
 

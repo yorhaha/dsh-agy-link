@@ -84,28 +84,17 @@ test('selectedModels accepts string arrays, drops junk, and env wins as a comma 
   assert.deepEqual(resolveConfig({ selectedModels: ['entry-model'] }, { DSH_AGY_SELECTED_MODELS: ' , ' }, {}).selectedModels, ['entry-model'])
 })
 
-test('showHeaderBadge and showTranslateAction default to true, accept overrides and env (issue #105)', () => {
+test('showHeaderBadge defaults to true, accepts overrides and env (issue #105)', () => {
   assert.equal(defaultConfig().showHeaderBadge, true)
-  assert.equal(defaultConfig().showTranslateAction, true)
 
-  const hiddenBoth = resolveConfig({ showHeaderBadge: false, showTranslateAction: false }, {}, {})
-  assert.equal(hiddenBoth.showHeaderBadge, false)
-  assert.equal(hiddenBoth.showTranslateAction, false)
+  const hidden = resolveConfig({ showHeaderBadge: false }, {}, {})
+  assert.equal(hidden.showHeaderBadge, false)
 
-  const envOverride = resolveConfig({}, { DSH_AGY_SHOW_HEADER_BADGE: 'off', DSH_AGY_SHOW_TRANSLATE_ACTION: 'false' }, {})
+  const envOverride = resolveConfig({}, { DSH_AGY_SHOW_HEADER_BADGE: 'off' }, {})
   assert.equal(envOverride.showHeaderBadge, false)
-  assert.equal(envOverride.showTranslateAction, false)
 
   const overrideWins = resolveConfig({ showHeaderBadge: false }, {}, { showHeaderBadge: true })
   assert.equal(overrideWins.showHeaderBadge, true)
-})
-
-test('translateDisplay defaults to card; every layer can choose replace; junk keeps the default', () => {
-  assert.equal(defaultConfig().translateDisplay, 'card')
-  assert.equal(resolveConfig({ translateDisplay: 'replace' }, {}, {}).translateDisplay, 'replace')
-  assert.equal(resolveConfig({}, {}, { translateDisplay: 'replace' }).translateDisplay, 'replace')
-  assert.equal(resolveConfig({ translateDisplay: 'replace' }, { DSH_AGY_TRANSLATE_DISPLAY: 'card' }, {}).translateDisplay, 'card', 'env wins last')
-  assert.equal(resolveConfig({ translateDisplay: 'inline' }, { DSH_AGY_TRANSLATE_DISPLAY: 'nope' }, {}).translateDisplay, 'card')
 })
 
 test('issue #107: poolWideCatalog is opt-in and every layer can enable it', () => {
@@ -154,12 +143,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_SHOW_HEADER_BADGE: 'off',
     DSH_AGY_SHOW_TRANSLATE_ACTION: 'off',
     DSH_AGY_POOL_WIDE_CATALOG: 'true',
-    DSH_AGY_IMAGE_MODEL: 'im',
-    DSH_AGY_IMAGE_EFFORT: 'high',
-    DSH_AGY_IMAGE_TIMEOUT_MS: '1000',
-    DSH_AGY_IMAGE_MAX_BYTES: '2048',
-    DSH_AGY_IMAGE_OUTPUT_DIR: '/tmp/img',
-    DSH_AGY_IMAGE_RETRIES: '2',
   }, {})
   assert.equal(cfg.permissionMode, 'skip', 'SKIP_PERMISSIONS wins over MODE')
   assert.equal(cfg.defaultModel, 'gemini-4-hydrogen')
@@ -180,14 +163,8 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
   assert.equal(cfg.suppressAgyAutoUpdate, true)
   assert.equal(cfg.autoWarmup, true)
   assert.deepEqual(cfg.warmupModels, ['m1', 'm2'])
-  assert.equal(cfg.autoTranslate, true)
-  assert.equal(cfg.translateTargetLanguage, 'English')
   assert.equal(cfg.showHeaderBadge, false)
-  assert.equal(cfg.showTranslateAction, false)
   assert.equal(cfg.poolWideCatalog, true)
-  assert.equal(cfg.imageTimeoutMs, 1000)
-  assert.equal(cfg.imageMaxBytes, 2048)
-  assert.equal(cfg.imageRetries, 2)
 
   // The rejection branches matter just as much: a typo must leave the default
   // intact instead of writing a zero/NaN into the running config (ADR-13).
@@ -214,9 +191,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_SHOW_HEADER_BADGE: 'nope',
     DSH_AGY_SHOW_TRANSLATE_ACTION: 'nope',
     DSH_AGY_POOL_WIDE_CATALOG: 'nope',
-    DSH_AGY_IMAGE_TIMEOUT_MS: 'nope',
-    DSH_AGY_IMAGE_MAX_BYTES: 'nope',
-    DSH_AGY_IMAGE_RETRIES: 'nope',
   }, {})
   assert.equal(junk.timeoutMs, base.timeoutMs)
   assert.equal(junk.contextWindowDefault, base.contextWindowDefault)
@@ -224,7 +198,5 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
   assert.equal(junk.mcpConfigScope, base.mcpConfigScope)
   assert.equal(junk.quotaPollIntervalMs, base.quotaPollIntervalMs)
   assert.equal(junk.showHeaderBadge, true)
-  assert.equal(junk.showTranslateAction, true)
   assert.equal(junk.poolWideCatalog, false)
-  assert.equal(junk.imageTimeoutMs, base.imageTimeoutMs)
 })

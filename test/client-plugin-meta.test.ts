@@ -58,15 +58,7 @@ test('console dictionary keys exist in every shipped language', () => {
     'header.refreshQuota', 'quota.fiveHour', 'quota.weekly', 'permission.label',
     'config.defaultEffort', 'config.defaultEffortDesc',
     'effort.auto', 'effort.low', 'effort.medium', 'effort.high',
-    'config.translateModel', 'config.translateModelDesc', 'config.translateModelAuto',
-    'config.translateEffort', 'config.translateEffortDesc', 'config.translateEffortAuto',
-    'config.image', 'config.imageDesc', 'config.imageModel', 'config.imageModelDesc',
-    'config.imageEffort', 'config.imageEffortDesc', 'config.imageCopy', 'config.imageCopied',
-    'config.imageCopyFailed',
     'config.showHeaderBadge', 'config.showHeaderBadgeDesc',
-    'config.showTranslateAction', 'config.showTranslateActionDesc',
-    'config.translateDisplay', 'config.translateDisplayDesc', 'config.translateDisplayCard', 'config.translateDisplayReplace',
-    'tsl.showTranslation',
     'config.poolWideCatalog', 'config.poolWideCatalogDesc',
   ];
   for (const [lang, dict] of Object.entries(languages)) {
@@ -89,29 +81,3 @@ test('settings panel keeps the default thinking-effort row', () => {
   assert.doesNotMatch(source, /setCfg\(["']defaultEffort["'],\s*["'](?:low|medium|high|xhigh|max)["']\)/)
 });
 
-test('settings row exposes translation model and effort as dropdowns', () => {
-  // Both writes ride the same /config endpoint as the toggles, and the selects
-  // are fed by the pure option builders: the catalog is advisory, so a
-  // configured-but-unlisted model id must stay selectable.
-  const source = readFileSync(join(root, 'dist', 'client.js'), 'utf8');
-  assert.match(source, /setCfg\(["']translateModel["']/)
-  assert.match(source, /setCfg\(["']translateEffort["']/)
-  assert.match(source, /translateModelOptions\(/)
-  assert.match(source, /translateEffortOptions\(/)
-  assert.match(source, /className: ["']agy-select["']/)
-  // The two selects sit in the auto-translate row, not in a separate section.
-  assert.match(source, /config\.autoTranslate/)
-  assert.match(source, /cfgRowRight/)
-});
-
-
-test('settings row exposes image generation model/effort and the CLI command', () => {
-  const source = readFileSync(join(root, 'dist', 'client.js'), 'utf8');
-  assert.match(source, /setCfg\(["']imageModel["']/);
-  assert.match(source, /setCfg\(["']imageEffort["']/);
-  assert.match(source, /setCfg\(["']btwModel["']/);
-  assert.match(source, /setCfg\(["']btwEffort["']/);
-  assert.match(source, /config\.image/);
-  assert.match(source, /dsh-agy-image/);
-  assert.match(source, /config\.imageCopy/);
-});

@@ -18,7 +18,7 @@ export function buildAgyCommandDeps(opts: {
   agents: () => { get(id: unknown): unknown } | undefined
 }): CommandDeps {
   const { services, goals, agents } = opts
-  const { getConfig, log, bin, version, store, pool, quota, catalog, auth, poolAuth, adapter, acpPool, ecosystem, imageService, setOverride, notifyPicker, readEffortUnsupported, rememberEffortUnsupported, sessionsSvc, backgroundWakeup } = services
+  const { getConfig, log, bin, version, store, pool, quota, catalog, auth, poolAuth, adapter, acpPool, setOverride, notifyPicker, readEffortUnsupported, rememberEffortUnsupported, sessionsSvc, backgroundWakeup } = services
   return {
     cfg: getConfig,
     bin,
@@ -30,10 +30,8 @@ export function buildAgyCommandDeps(opts: {
     poolAuth: () => poolAuth,
     quota: () => quota,
     lastRun: () => services.lastRun,
-    imageService: () => imageService,
     acpStatus: () => acpPool.status(),
     backgroundStatus: () => backgroundWakeup.status(),
-    ecosystem: () => ecosystem,
     activeRun: (sessionId) => adapter.activeRun(sessionId),
     runOnce: (req) => runAgyOnce({
       cfg: getConfig,
@@ -68,7 +66,7 @@ export function agyCommandDefinition(deps: CommandDeps): CommandDefinition {
     description: 'Antigravity (agy CLI) bridge: status, login, models, mode, diagnostics, goal',
     // Without `input`, DSH's composer treats `/agy <sub>` as an illegal bare
     // command and silently falls back to a normal chat message (issue #27).
-    input: { hint: '<status|pool|use|add-account|enable-account|disable-account|remove-account|refresh-quota|clear-cooldown|auth|auth-status|auth-code|import|image|goal|session|btw|fork|grill|learn|compact|mcp|plugins|agents|skills|sync-ecosystem|models|mode|sandbox|agent|settings|transport|wakeup|effort|dispatch|dispatch-retries|parallel|max-concurrent|workspace|clear|doctor|help>' },
+    input: { hint: '<status|pool|use|add-account|enable-account|disable-account|remove-account|refresh-quota|clear-cooldown|auth|auth-status|auth-code|import|goal|session|fork|grill|learn|compact|models|mode|sandbox|agent|settings|transport|wakeup|effort|dispatch|dispatch-retries|parallel|max-concurrent|workspace|clear|doctor|help>' },
     handler: (invocation) => handle(deps, invocation.rawInput, invocation),
   }
 }

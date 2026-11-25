@@ -35,14 +35,6 @@ test('chat call: not aux, configured permission mode, tools as declared', () => 
   assert.equal(context.hasToolSupport, true)
 })
 
-test('translation: aux + plan + own session payload', () => {
-  const { context } = ctx({ purpose: 'translation', agyTranslateSession: { setup: 'persona', text: 'source' } })
-  assert.equal(context.isAux, true)
-  assert.equal(context.isTranslateSession, true)
-  assert.equal(context.translateSession?.setup, 'persona')
-  assert.equal(context.permissionMode, 'plan')
-})
-
 test('image: aux but keeps the configured mode, and honours a per-call override', () => {
   assert.equal(ctx({ purpose: 'image' }).context.permissionMode, 'accept-edits')
   assert.equal(ctx({ purpose: 'image', agyPermissionMode: 'skip' }).context.permissionMode, 'skip')
@@ -60,10 +52,9 @@ test('review policy marks the call aux', () => {
   assert.equal(context.isAux, true)
 })
 
-test('auxiliary gate blocks background helpers but not translation/image', () => {
+test('auxiliary gate blocks background helpers but not image', () => {
   const cfg = { allowAuxiliary: false }
   assert.throws(() => ctx({ purpose: 'compaction' }, cfg), /allowAuxiliary/)
-  assert.doesNotThrow(() => ctx({ purpose: 'translation' }, cfg))
   assert.doesNotThrow(() => ctx({ purpose: 'image' }, cfg))
 })
 
@@ -97,8 +88,8 @@ test('missing binary throws AGY_NOT_INSTALLED before any work', () => {
 })
 
 test('pure-text aux calls run in a neutral, cacheable dir instead of the project workspace', () => {
-  for (const purpose of ['session-title', 'compaction', 'translation'] as const) {
-    const { context } = ctx({ purpose, ...(purpose === 'translation' ? { agyTranslateSession: { setup: 'p', text: 't' } } : {}) })
+  for (const purpose of ['session-title', 'compaction'] as const) {
+    const { context } = ctx({ purpose })
     assert.equal(context.neutralAuxWorkspace, true, purpose + ' must use the neutral dir')
     // Separator-agnostic: the neutral dir is a real path under the plugin state
     // dir, so Windows yields `…\agy-link\aux-cwd` (the old assert baked in `/`).

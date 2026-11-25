@@ -1,7 +1,7 @@
-// Issue #105: the header status badge and the per-message "translate to plain
-// language" button are user-hideable. These tests drive the real components
-// (SSR for the header, jsdom-free pure helpers for the visibility rule) instead
-// of string-matching a bundle, so a refactor cannot silently drop the switch.
+// Issue #105: the header status badge is user-hideable. These tests drive the
+// real components (SSR for the header, jsdom-free pure helpers for the
+// visibility rule) instead of string-matching a bundle, so a refactor cannot
+// silently drop the switch.
 import './helpers/client-render.ts';
 import { React, renderToStaticMarkup } from './helpers/client-render.ts';
 
@@ -33,56 +33,41 @@ function renderBadge(): string {
 
 test('isUiVisible is opt-out: only an explicit false hides an affordance', () => {
 	assert.equal(isUiVisible(null, 'showHeaderBadge'), true, 'no status yet (startup) stays visible')
-	assert.equal(isUiVisible(undefined, 'showTranslateAction'), true)
 	assert.equal(isUiVisible({}, 'showHeaderBadge'), true, 'older hosts without the field stay visible')
-	assert.equal(isUiVisible({ showTranslateAction: true }, 'showTranslateAction'), true)
-	assert.equal(isUiVisible({ showTranslateAction: false }, 'showTranslateAction'), false)
+	assert.equal(isUiVisible({ showHeaderBadge: true }, 'showHeaderBadge'), true)
 	assert.equal(isUiVisible({ showHeaderBadge: false }, 'showHeaderBadge'), false)
-	// The two switches are independent.
-	assert.equal(isUiVisible({ showHeaderBadge: false }, 'showTranslateAction'), true)
 })
 
-test('visibility rows: both switches render and write the correct config keys', () => {
+test('visibility rows: the badge switch renders and writes the correct config key', () => {
 	const written: Array<[string, unknown]> = []
 	const rows = renderVisibilityRows({
 		t: ((key: string) => key) as never,
-		status: { showHeaderBadge: false, showTranslateAction: true },
+		status: { showHeaderBadge: false },
 		loadingAction: 'config:showHeaderBadge',
 		setCfg: async (key, value) => { written.push([key, value]) },
 	}) as Array<{ props: { right: { props: { children: Array<{ props: { onClick: () => void; disabled: boolean; variant: string } }> } } } }>
-	assert.equal(rows.length, 3)
+	assert.equal(rows.length, 1)
 	const html = renderToStaticMarkup(createElement('div', null, ...rows))
 	assert.match(html, /config\.showHeaderBadge/)
-	assert.match(html, /config\.showTranslateAction/)
-	assert.match(html, /config\.translateDisplay/)
 
 	// The hidden row marks "off" active and disables its buttons while a write
-	// is in flight; the visible row marks "on" active.
+	// is in flight.
 	const headerButtons = rows[0]!.props.right.props.children
 	assert.equal(headerButtons[0]!.props.variant, 'seg')
 	assert.equal(headerButtons[1]!.props.variant, 'segActive')
 	assert.equal(headerButtons[0]!.props.disabled, true)
-	const translateButtons = rows[1]!.props.right.props.children
-	assert.equal(translateButtons[0]!.props.variant, 'segActive')
-	assert.equal(translateButtons[0]!.props.disabled, false)
-	// Display mode defaults to the card when the status omits it.
-	const displayButtons = rows[2]!.props.right.props.children
-	assert.equal(displayButtons[0]!.props.variant, 'segActive')
-	assert.equal(displayButtons[1]!.props.variant, 'seg')
 
 	for (const row of rows) {
 		for (const button of row.props.right.props.children) button.props.onClick()
 	}
 	assert.deepEqual(written, [
 		['showHeaderBadge', true], ['showHeaderBadge', false],
-		['showTranslateAction', true], ['showTranslateAction', false],
-		['translateDisplay', 'card'], ['translateDisplay', 'replace'],
 	])
 })
 
 test('issue #105: an explicit status opt-out removes the header badge but keeps the console portal', () => {
 	try {
-		publishStatusSnapshot({ showHeaderBadge: true, showTranslateAction: true } satisfies StatusPayload)
+		publishStatusSnapshot({ showHeaderBadge: true } satisfies StatusPayload)
 		assert.match(renderBadge(), /agy-session-status-btn/, 'badge is visible by default')
 
 		publishStatusSnapshot({ showHeaderBadge: false } satisfies StatusPayload)
@@ -91,7 +76,7 @@ test('issue #105: an explicit status opt-out removes the header badge but keeps 
 		publishStatusSnapshot({ showHeaderBadge: true } satisfies StatusPayload)
 		assert.match(renderBadge(), /agy-session-status-btn/, 'turning the switch back on restores the badge')
 	} finally {
-		publishStatusSnapshot({ showHeaderBadge: true, showTranslateAction: true } satisfies StatusPayload)
+		publishStatusSnapshot({ showHeaderBadge: true } satisfies StatusPayload)
 		disposeStatusPolling()
 	}
 })

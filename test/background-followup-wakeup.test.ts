@@ -414,7 +414,6 @@ describe('cross-turn background wakeup, slice 1: one-shot schedule timers', () =
     } finally {
       services.backgroundWakeup.dispose()
       services.acpPool.dispose()
-      services.translationWorkers?.dispose()
       await (ctx as unknown as { stop?: () => Promise<void> }).stop?.()
       restoreEnv()
       rmSync(sandboxDir, { recursive: true, force: true })

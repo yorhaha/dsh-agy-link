@@ -59,10 +59,7 @@ function makeCallCtx(sessionKey: string, workspaceRoot: string, cfg: PluginConfi
     isCompaction: false,
     isTitle: false,
     isReview: false,
-    isTranslate: false,
     isImage: false,
-    isTranslateSession: false,
-    translateSession: null,
   }
 }
 

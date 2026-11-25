@@ -16,7 +16,7 @@ runtime/     process and platform I/O (agy runner/parser/mapper, proxy/env)
 provider/    the LlmAdapter pipeline (call context, purpose policy, prompt,
              account selection, failure classification, attempt/finalize)
   ↑
-features/    acp, ecosystem, translation, image, warmup, diagnostics, commands
+features/    acp, warmup, diagnostics, subagent, background
   ↑
 transport/   HTTP routes, respond helpers, tool registration
   ↑
@@ -48,10 +48,10 @@ effort-refusal replay. `prepareCall()` binds model metadata for newer hosts.
 
 ## HTTP surface
 
-HTTP routes are registered by `transport/http/router.ts` from 11 modules
-(`status`, `session-view`, `pool`, `auth`, `config`, `translate`, `media`,
-`embed`, `ecosystem`, `btw`, `lease`). Route paths, methods and JSON shapes
-are covered by `test/http-contract.test.ts`.
+HTTP routes are registered by `transport/http/router.ts` from a handful of
+modules (`status`, `session-view`, `pool`, `auth`, `config`, `media`, `embed`,
+`lease`). Route paths, methods and JSON shapes are covered by
+`test/http-contract.test.ts`.
 
 ## Client
 
@@ -65,7 +65,7 @@ owns fetch. No inline button styling outside `ui/`.
 npm run check        # tsc --noEmit
 npm run lint:arch    # dependency direction + cycles
 npm run lint:budget  # file/function size ratchet
-npm run build        # tsdown (host, client, bridge, image CLI)
+npm run build        # tsdown (host, client, bridge)
 npm test             # full suite
 npm run test:coverage# Node built-in coverage with thresholds
 npm run verify       # all of the above except coverage

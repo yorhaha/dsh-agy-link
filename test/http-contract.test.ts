@@ -59,23 +59,10 @@ const EXPECTED_ROUTES: ReadonlyArray<readonly [kind: string, path: string]> = [
   ['exact', '/plugins/agy-link/pool/set-active'],
   ['exact', '/plugins/agy-link/pool/reorder'],
   ['exact', '/plugins/agy-link/config'],
-  ['exact', '/plugins/agy-link/translate'],
-  ['exact', '/plugins/agy-link/translate/pending'],
-  ['exact', '/plugins/agy-link/translate/turn'],
-  ['exact', '/plugins/agy-link/translate/state'],
   ['exact', '/plugins/agy-link/qr'],
   ['exact', '/plugins/agy-link/media'],
   ['exact', '/plugins/agy-link/open'],
   ['exact', '/plugins/agy-link/embed'],
-  ['exact', '/plugins/agy-link/ecosystem'],
-  ['exact', '/plugins/agy-link/ecosystem/sync'],
-  ['exact', '/plugins/agy-link/ecosystem/plugin'],
-  ['exact', '/plugins/agy-link/btw/state'],
-  ['exact', '/plugins/agy-link/btw/stream'],
-  ['exact', '/plugins/agy-link/btw/ask'],
-  ['exact', '/plugins/agy-link/btw/cancel'],
-  ['exact', '/plugins/agy-link/btw/dismiss'],
-  ['exact', '/plugins/agy-link/btw/clear'],
   ['exact', '/plugins/agy-link/lease'],
   ['exact', '/plugins/agy-link/lease/acquire'],
   ['exact', '/plugins/agy-link/lease/renew'],
@@ -106,14 +93,7 @@ const POST_ONLY_ROUTES = [
   '/plugins/agy-link/pool/set-active',
   '/plugins/agy-link/pool/reorder',
   '/plugins/agy-link/config',
-  '/plugins/agy-link/translate',
   '/plugins/agy-link/open',
-  '/plugins/agy-link/ecosystem/sync',
-  '/plugins/agy-link/ecosystem/plugin',
-  '/plugins/agy-link/btw/ask',
-  '/plugins/agy-link/btw/cancel',
-  '/plugins/agy-link/btw/dismiss',
-  '/plugins/agy-link/btw/clear',
 ] as const
 
 type FakeWebServer = {
@@ -150,9 +130,6 @@ const BASE_CONFIG: Record<string, unknown> = {
   agySettings: '',
   transport: 'cli',
   mcpBridge: false,
-  btwEnabled: true,
-  imageTool: true,
-  syncAccountCustomizations: true,
   workspaceRoot: '/tmp/agy-contract',
   defaultModel: 'gemini-3-flash',
   defaultEffort: 'high',
@@ -161,18 +138,8 @@ const BASE_CONFIG: Record<string, unknown> = {
   selectedModels: [] as string[],
   autoWarmup: false,
   warmupModels: [] as string[],
-  autoTranslate: false,
-  translateModel: '',
-  translateEffort: '',
-  translateTargetLanguage: 'zh',
   showHeaderBadge: true,
-  showTranslateAction: true,
   poolWideCatalog: false,
-  imageModel: '',
-  imageEffort: '',
-  imageOutputDir: '',
-  btwModel: '',
-  btwEffort: 'low',
   proxyUrl: '',
   mcpConfigScope: 'global',
   mcpConfigPath: '',
@@ -183,7 +150,6 @@ const BASE_CONFIG: Record<string, unknown> = {
   maxConcurrent: 0,
   suppressAgyAutoUpdate: false,
   quotaViaCli: false,
-  translateBindConversation: false,
   fallbackModels: [] as string[],
   modelsCacheTtlMs: 0,
 }
@@ -215,44 +181,6 @@ function fakeServices(overrides: Overrides = {}, config: ConfigOverrides = {}): 
     poolAuth: { status: () => ({ phase: 'idle' }) },
     adapter: { effortUnsupportedModels: () => [] },
     acpPool: { status: () => ({ activeProcesses: 0, sessions: 0, keys: [] }) },
-    ecosystem: {
-      inspect: () => ({
-        primaryHome: '/tmp/agy-primary',
-        plugins: [],
-        mcpServers: [],
-        skills: [],
-        rules: [],
-        agents: [],
-        syncedAccountCount: 0,
-        lastSyncAt: null,
-      }),
-      syncAll: () => ({
-        primaryHome: '/tmp/agy-primary',
-        syncedAccounts: [],
-        skippedAccounts: [],
-        copiedFiles: 0,
-        removedFiles: 0,
-        errors: [],
-        syncedAt: 1,
-      }),
-      setPluginEnabled: (id: string, enabled: boolean) => ({
-        primaryHome: '/tmp/agy-primary',
-        plugins: [{ id, name: id, enabled, source: 'global', hasMcp: false, hasHooks: false, skillCount: 0, ruleCount: 0, path: '/tmp/' + id }],
-        mcpServers: [],
-        skills: [],
-        rules: [],
-        agents: [],
-        syncedAccountCount: 0,
-        lastSyncAt: null,
-      }),
-    },
-    translation: {
-      pendingFor: () => [],
-      stats: () => ({}),
-      isPending: () => false,
-      existingTurn: () => null,
-      existingMessage: () => null,
-    },
     setOverride: () => undefined,
     readEffortUnsupported: () => [],
     rememberEffortUnsupported: () => undefined,
@@ -451,22 +379,18 @@ test('/status answers 200 with the client-visible shape', async () => {
   assert.deepEqual(body.catalog, { source: 'fallback', count: 0, lastError: null })
   assert.deepEqual(body.catalogModels, [])
   assert.deepEqual(body.hiddenModels, [])
-  assert.deepEqual(body.translateState, { pending: [], stats: {} })
   assert.equal(body.bindings, 0)
   assert.deepEqual(body.effortUnsupported, [])
   assert.equal(body.lastRun, null)
   // Field names the client half depends on (frozen contract).
   for (const key of [
     'permissionMode', 'workspaceRoot', 'defaultModel', 'defaultEffort', 'askTool', 'auth', 'poolAuth',
-    'autoWarmup', 'warmupModels', 'autoTranslate', 'translateModel', 'translateEffort',
-    'translateTargetLanguage', 'imageModel', 'imageEffort', 'imageOutputDir',
-    'btwModel', 'btwEffort',
-    'showHeaderBadge', 'showTranslateAction', 'poolWideCatalog',
+    'autoWarmup', 'warmupModels',
+    'showHeaderBadge', 'poolWideCatalog',
   ]) {
     assert.ok(key in body, 'status must keep field ' + key)
   }
   assert.equal(body.showHeaderBadge, true)
-  assert.equal(body.showTranslateAction, true)
   assert.equal(body.poolWideCatalog, false)
 })
 
@@ -526,12 +450,11 @@ test('/session-view answers for the family of the model this session selected', 
 
 test('/status forwards an explicit UI visibility opt-out (issue #105)', async () => {
   const webServer = fakeWebServer()
-  registerRoutes(webServer, fakeServices({}, { showHeaderBadge: false, showTranslateAction: false }))
+  registerRoutes(webServer, fakeServices({}, { showHeaderBadge: false }))
   const captured = await invoke(routeFor(webServer.routes, '/plugins/agy-link/status'), fakeReq('GET'))
   assert.equal(captured.status(), 200)
   const body = captured.json() as Record<string, unknown>
   assert.equal(body.showHeaderBadge, false, 'an explicit false must reach the client unchanged')
-  assert.equal(body.showTranslateAction, false)
 })
 
 test('issue #107: /status catalogModels follows the pool-wide switch', async () => {
@@ -580,7 +503,6 @@ test('/status reflects bin/dormant/last-run/pool proxy and announces no method g
     },
     adapter: { effortUnsupportedModels: () => ['claude-sonnet-4-6'] },
     lastRun: { processOk: true, processCode: '0', toolErrors: [], durationMs: 10, model: 'm', tokenSpeed: { lastTps: 1, avgTps: 1, outputTokens: 1, measuredSteps: 1, generatingMs: 1 } },
-    translation: { pendingFor: () => ['p'], stats: () => ({ ok: 2 }), isPending: () => false, existingTurn: () => null, existingMessage: () => null },
   }, { proxyUrl: '  http://proxy.local:8080  ', hiddenModels: ['hidden-1'], enabled: false })
 
   // No method gate on GET-style routes: POST is processed identically.
@@ -595,7 +517,6 @@ test('/status reflects bin/dormant/last-run/pool proxy and announces no method g
   assert.deepEqual(body.catalog, { source: 'agy', count: 2, lastError: 'boom' })
   assert.deepEqual(body.effortUnsupported, ['claude-sonnet-4-6'])
   assert.equal(body.bindings, 2)
-  assert.deepEqual(body.translateState, { pending: ['p'], stats: { ok: 2 } })
   assert.deepEqual(body.lastRun, { processOk: true, processCode: '0', toolErrors: [], durationMs: 10, model: 'm', tokenSpeed: { lastTps: 1, avgTps: 1, outputTokens: 1, measuredSteps: 1, generatingMs: 1 } })
   assert.deepEqual(pool.callsTo('getPoolData'), [['http://proxy.local:8080']], 'status passes the trimmed proxy to getPoolData')
 })
@@ -613,9 +534,9 @@ test('every POST-only route rejects GET/PUT/DELETE with 405 before touching serv
       assert.deepEqual(captured.json(), { error: 'POST only' }, path + ' ' + method)
     }
   }
-  // POST-only + 14 GET/method-agnostic routes (incl. /btw/state & /btw/stream) + 4 lease routes (their own
+  // POST-only + 14 GET/method-agnostic routes + 4 lease routes (their own
   // `{ok,code,error}` envelope; gated in test/lease-routes.test.ts).
-  assert.equal(POST_ONLY_ROUTES.length + 14 + 4, EXPECTED_ROUTES.length)
+  assert.equal(POST_ONLY_ROUTES.length + 8 + 4, EXPECTED_ROUTES.length)
 })
 
 test('GET-style routes do not gate on method (current contract, asserted verbatim)', async (t) => {
@@ -627,9 +548,6 @@ test('GET-style routes do not gate on method (current contract, asserted verbati
     ['/plugins/agy-link/status', '/', 200],
     ['/plugins/agy-link/session-view', '/?session=s', 200],
     ['/plugins/agy-link/pool', '/', 200],
-    ['/plugins/agy-link/translate/pending', '/', 200],
-    ['/plugins/agy-link/translate/turn', '/?session=s&turn=1', 200],
-    ['/plugins/agy-link/translate/state', '/?session=s&message=m', 200],
     ['/plugins/agy-link/qr', '/', 404],
     ['/plugins/agy-link/mermaid.min.js', '/', 404],
     ['/plugins/agy-link/media', '/', 400],
@@ -685,9 +603,6 @@ test('/config is POST-only and validates keys before writing', async () => {
   assert.equal(missingKey.status(), 400)
   assert.deepEqual(missingKey.json(), { error: 'key not settable' })
 
-  const badDisplay = await invoke(route, fakeReq('POST', '/', { key: 'translateDisplay', value: 'inline' }))
-  assert.equal(badDisplay.status(), 400)
-  assert.deepEqual(badDisplay.json(), { error: 'translateDisplay must be card or replace' })
 
   const badArray = await invoke(route, fakeReq('POST', '/', { key: 'hiddenModels', value: 'nope' }))
   assert.equal(badArray.status(), 400)
@@ -722,14 +637,12 @@ test('/config is POST-only and validates keys before writing', async () => {
 
   // issue #105: both visibility switches are settable through the same guarded
   // endpoint; neither is a picker event.
-  for (const [key, value] of [['showHeaderBadge', false], ['showTranslateAction', false], ['translateDisplay', 'replace'], ['btwModel', 'gemini-4-hydrogen'], ['btwEffort', 'medium']] as const) {
+  for (const [key, value] of [['showHeaderBadge', false]] as const) {
     const res = await invoke(route, fakeReq('POST', '/', { key, value }))
     assert.equal(res.status(), 200, key + ' must be an allowed config key')
     assert.deepEqual(res.json(), { ok: true, key, value })
     assert.deepEqual(writes.at(-1), [key, value])
   }
-  const badBtwEffort = await invoke(route, fakeReq('POST', '/', { key: 'btwEffort', value: 'turbo' }))
-  assert.equal(badBtwEffort.status(), 400)
   // issue #108/#109: toggling the pool-wide catalog CHANGES the visible model
   // set, so it must announce a picker update (otherwise the cached picker
   // keeps showing the old account's models until a restart).
@@ -1438,238 +1351,6 @@ test('/qr returns 404 without a pending URL and a PNG when one exists', async ()
   assert.ok(captured.text().length > 0)
 })
 
-// ---------------------------------------------------------------------------
-// Translate
-// ---------------------------------------------------------------------------
-
-test('/translate waits out a slow agy turn instead of answering 504 at 30s', async () => {
-  // A translation is a full agy turn (translateTimeoutMs defaults to 120s).
-  // The general ROUTE_TIMEOUT_MS would answer 504 first and, because sendJson
-  // is exactly-once, discard the real 200 — every slow "译成人话" looked like
-  // a failure. Fake timers let us cross 30s without a 31-second test.
-  mock.timers.enable({ apis: ['setTimeout'] })
-  try {
-    let finish: () => void = () => undefined
-    const gate = new Promise<void>((resolve) => { finish = resolve })
-    const s = setup({
-      translation: {
-        translate: async () => { await gate; return { ok: true, text: '译文' } },
-        pendingFor: () => [], stats: () => ({}), isPending: () => false,
-        existingTurn: () => null, existingMessage: () => null,
-      },
-    }, { translateTimeoutMs: 120_000 })
-    const captured = capture()
-    s.route('/plugins/agy-link/translate').handler(fakeReq('POST', '/', { text: 'hello' }), captured.res)
-    // Let readBody + the async route body reach the pending translation.
-    for (let i = 0; i < 6; i++) await Promise.resolve()
-    mock.timers.tick(31_000)
-    await Promise.resolve()
-    assert.equal(captured.status(), 0, 'no 504 may be written while the job is still running')
-    finish()
-    await captured.done
-    assert.equal(captured.status(), 200, 'the real translation result wins')
-    assert.equal((captured.json() as Record<string, unknown>).ok, true)
-  } finally {
-    mock.timers.reset()
-  }
-})
-
-test('/translate is strict about JSON and dispatches to the right translation call', async () => {
-  const calls: Array<[string, unknown[]]> = []
-  const make = (result: unknown) => async (...args: unknown[]) => {
-    calls.push(['_', args])
-    return result
-  }
-  const s = setup({
-    translation: {
-      pendingFor: () => [],
-      stats: () => ({}),
-      isPending: () => false,
-      existingTurn: () => null,
-      existingMessage: () => null,
-      translate: make({ ok: true, text: 'translated' }),
-      translateMessage: make({ ok: true, text: 'message' }),
-      translateTurn: make({ ok: true, text: 'turn' }),
-      translateLastTurn: make({ ok: true, text: 'last' }),
-    },
-  })
-  const route = s.route('/plugins/agy-link/translate')
-
-  const malformed = await invoke(route, rawReq('POST', '/', [Buffer.from('{oops')]))
-  assert.equal(malformed.status(), 400)
-  assert.deepEqual(malformed.json(), { error: 'invalid JSON body' })
-
-  const oversized = await invoke(route, oversizedReq('POST'))
-  assert.equal(oversized.status(), 400)
-  assert.deepEqual(oversized.json(), { error: 'invalid JSON body' })
-
-  const noSelector = await invoke(route, fakeReq('POST', '/', {}))
-  assert.equal(noSelector.status(), 400)
-  assert.deepEqual(noSelector.json(), { error: 'text, or sessionId (+ turn/messageId), is required' })
-
-  const text = await invoke(route, fakeReq('POST', '/', { text: 'hello' }))
-  assert.equal(text.status(), 200)
-  assert.deepEqual(text.json(), { ok: true, text: 'translated' })
-
-  const byMessage = await invoke(route, fakeReq('POST', '/', { sessionId: 's', messageId: 'm' }))
-  assert.equal(byMessage.status(), 200)
-
-  const byTurn = await invoke(route, fakeReq('POST', '/', { sessionId: 's', turn: 3 }))
-  assert.equal(byTurn.status(), 200)
-
-  const byLast = await invoke(route, fakeReq('POST', '/', { sessionId: 's' }))
-  assert.equal(byLast.status(), 200)
-})
-
-test('/translate maps result codes to 200/409/400/502 and thrown failures to 500', async () => {
-  const results: Array<{ result?: unknown; throw?: boolean }> = [
-    { result: { ok: true, text: 'x' } },
-    { result: { ok: false, code: 'TRANSIENT', error: 'try again' } },
-    { result: { ok: false, code: 'TURN_NOT_FOUND', error: 'no turn' } },
-    { result: { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'no message' } },
-    { result: { ok: false, code: 'EMPTY_TEXT', error: 'empty' } },
-    { result: { ok: false, code: 'SOMETHING_ELSE', error: 'upstream' } },
-    { throw: true },
-  ]
-  const expected = [200, 409, 400, 400, 400, 502, 500]
-  for (let i = 0; i < results.length; i++) {
-    const spec = results[i]!
-    const s = setup({
-      translation: {
-        pendingFor: () => [],
-        stats: () => ({}),
-        isPending: () => false,
-        existingTurn: () => null,
-        existingMessage: () => null,
-        translate: async () => {
-          if (spec.throw === true) throw new Error('translate exploded')
-          return spec.result
-        },
-      },
-    })
-    const captured = await invoke(s.route('/plugins/agy-link/translate'), fakeReq('POST', '/', { text: 'hi' }))
-    assert.equal(captured.status(), expected[i], 'case ' + i)
-  }
-})
-
-test('/translate/pending answers items/stats and forwards the session filter', async () => {
-  const filters: unknown[] = []
-  const s = setup({
-    translation: {
-      pendingFor: (session?: string) => {
-        filters.push(session)
-        return [{ id: '1' }]
-      },
-      stats: () => ({ total: 1 }),
-      isPending: () => false,
-      existingTurn: () => null,
-      existingMessage: () => null,
-    },
-  })
-  const noSession = await invoke(s.route('/plugins/agy-link/translate/pending'), fakeReq('GET'))
-  assert.equal(noSession.status(), 200)
-  assert.deepEqual(noSession.json(), { items: [{ id: '1' }], stats: { total: 1 } })
-
-  const withSession = await invoke(s.route('/plugins/agy-link/translate/pending'), fakeReq('GET', '/?session=abc'))
-  assert.equal(withSession.status(), 200)
-  assert.deepEqual(filters, [undefined, 'abc'])
-
-  // A malformed percent-escape in the query is returned verbatim, not thrown.
-  const malformedEscape = await invoke(s.route('/plugins/agy-link/translate/pending'), fakeReq('GET', '/?session=%E0%A4%A'))
-  assert.equal(malformedEscape.status(), 200)
-  assert.deepEqual(filters.at(-1), '%E0%A4%A')
-})
-
-test('/translate/turn validates session+turn and reports idle/ready', async () => {
-  const existing: Array<Record<string, unknown> | null> = [null, { seq: 7, model: 'm', effort: 'high' }]
-  let call = 0
-  const s = setup({
-    translation: {
-      pendingFor: () => [],
-      stats: () => ({}),
-      isPending: () => false,
-      existingTurn: () => existing[call++] ?? null,
-      existingMessage: () => null,
-    },
-  })
-  const route = s.route('/plugins/agy-link/translate/turn')
-
-  const missing = await invoke(route, fakeReq('GET', '/'))
-  assert.equal(missing.status(), 400)
-  assert.deepEqual(missing.json(), { error: 'session and turn are required' })
-
-  // Number('') === 0 and Number.isFinite(0) is true: a missing or empty `turn`
-  // is accepted as turn 0 (current contract; only a non-numeric turn rejects).
-  const missingTurn = await invoke(route, fakeReq('GET', '/?session=s'))
-  assert.equal(missingTurn.status(), 200)
-  assert.deepEqual(missingTurn.json(), { state: 'idle' })
-
-  const invalidTurn = await invoke(route, fakeReq('GET', '/?session=s&turn=abc'))
-  assert.equal(invalidTurn.status(), 400)
-  assert.deepEqual(invalidTurn.json(), { error: 'session and turn are required' })
-
-  call = 0
-  const idle = await invoke(route, fakeReq('GET', '/?session=s&turn=2'))
-  assert.equal(idle.status(), 200)
-  assert.deepEqual(idle.json(), { state: 'idle' })
-
-  const ready = await invoke(route, fakeReq('GET', '/?session=s&turn=2'))
-  assert.equal(ready.status(), 200)
-  assert.deepEqual(ready.json(), { state: 'ready', seq: 7, model: 'm', effort: 'high' })
-
-  call = 0
-  const emptyTurn = await invoke(route, fakeReq('GET', '/?session=s&turn='))
-  assert.equal(emptyTurn.status(), 200)
-  assert.deepEqual(emptyTurn.json(), { state: 'idle' })
-})
-
-test('/translate/state validates session+message and reports idle/busy/ready', async () => {
-  const behaviors: Array<{ existing?: Record<string, unknown> | null; pending?: boolean }> = [
-    { existing: null, pending: false },
-    { existing: null, pending: true },
-    { existing: { seq: 3, model: 'm', effort: '' } },
-  ]
-  let call = 0
-  let current: { existing?: Record<string, unknown> | null; pending?: boolean } | undefined
-  const s = setup({
-    translation: {
-      pendingFor: () => [],
-      stats: () => ({}),
-      isPending: () => current?.pending === true,
-      existingTurn: () => null,
-      existingMessage: () => {
-        current = behaviors[call]
-        call++
-        return current?.existing ?? null
-      },
-    },
-  })
-  const route = s.route('/plugins/agy-link/translate/state')
-
-  const missing = await invoke(route, fakeReq('GET', '/'))
-  assert.equal(missing.status(), 400)
-  assert.deepEqual(missing.json(), { error: 'session and message are required' })
-
-  const missingMessage = await invoke(route, fakeReq('GET', '/?session=s'))
-  assert.equal(missingMessage.status(), 400)
-
-  const idle = await invoke(route, fakeReq('GET', '/?session=s&message=m1'))
-  assert.equal(idle.status(), 200)
-  assert.deepEqual(idle.json(), { state: 'idle' })
-
-  const busy = await invoke(route, fakeReq('GET', '/?session=s&message=m2'))
-  assert.equal(busy.status(), 200)
-  assert.deepEqual(busy.json(), { state: 'busy' })
-
-  const ready = await invoke(route, fakeReq('GET', '/?session=s&message=m3'))
-  assert.equal(ready.status(), 200)
-  assert.deepEqual(ready.json(), { state: 'ready', seq: 3, model: 'm', effort: '' })
-})
-
-// ---------------------------------------------------------------------------
-// Media / assets / mermaid
-// ---------------------------------------------------------------------------
-
 test('/media rejects a missing path, missing files, non-images and directories', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'agy-contract-media-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -1974,32 +1655,7 @@ test('/embed serves confined HTML widgets with strict CSP and bridge script', as
   assert.match(okRes.text(), /"w1"/)
 })
 
-test('/ecosystem routes return snapshot, run sync, and toggle plugin state', async () => {
-  const s = setup()
-  const getEco = s.route('/plugins/agy-link/ecosystem')
-  const postBlocked = await invoke(getEco, fakeReq('POST', '/'))
-  assert.equal(postBlocked.status(), 405)
-
-  const ecoRes = await invoke(getEco, fakeReq('GET', '/'))
-  assert.equal(ecoRes.status(), 200)
-  assert.equal((ecoRes.json() as { ok?: boolean }).ok, true)
-
-  const syncRes = await invoke(s.route('/plugins/agy-link/ecosystem/sync'), fakeReq('POST', '/', {}))
-  assert.equal(syncRes.status(), 200)
-  assert.equal((syncRes.json() as { ok?: boolean }).ok, true)
-
-  const toggleRoute = s.route('/plugins/agy-link/ecosystem/plugin')
-  const badToggle = await invoke(toggleRoute, fakeReq('POST', '/', { id: 'p1' }))
-  assert.equal(badToggle.status(), 400)
-
-  const okToggle = await invoke(toggleRoute, fakeReq('POST', '/', { id: 'p1', enabled: false }))
-  assert.equal(okToggle.status(), 200)
-  const snap = (okToggle.json() as { snapshot: { plugins: Array<{ id: string; enabled: boolean }> } }).snapshot
-  assert.equal(snap.plugins[0]?.id, 'p1')
-  assert.equal(snap.plugins[0]?.enabled, false)
-})
-
-test('/config validates auto mode, sandbox, transport, agent, agySettings, imageTool, and syncAccountCustomizations', async () => {
+test('/config validates auto mode, sandbox, transport, agent, and agySettings', async () => {
   const written: Array<[string, unknown]> = []
   const s = setup({ setOverride: (k: string, v: unknown) => written.push([k, v]) })
   const route = s.route('/plugins/agy-link/config')
@@ -2012,8 +1668,6 @@ test('/config validates auto mode, sandbox, transport, agent, agySettings, image
   assert.equal((await invoke(route, fakeReq('POST', '/', { key: 'agent', value: 'reviewer' }))).status(), 200)
   assert.equal((await invoke(route, fakeReq('POST', '/', { key: 'agySettings', value: '{"a":1}' }))).status(), 200)
   assert.equal((await invoke(route, fakeReq('POST', '/', { key: 'agySettings', value: '{bad-json' }))).status(), 400)
-  assert.equal((await invoke(route, fakeReq('POST', '/', { key: 'imageTool', value: false }))).status(), 200)
-  assert.equal((await invoke(route, fakeReq('POST', '/', { key: 'syncAccountCustomizations', value: false }))).status(), 200)
 
   assert.deepEqual(written, [
     ['permissionMode', 'auto'],
@@ -2021,8 +1675,6 @@ test('/config validates auto mode, sandbox, transport, agent, agySettings, image
     ['transport', 'acp'],
     ['agent', 'reviewer'],
     ['agySettings', '{"a":1}'],
-    ['imageTool', false],
-    ['syncAccountCustomizations', false],
   ])
 })
 
@@ -2045,16 +1697,3 @@ test('issue #196: mcpBridge is settable through the config route (boolean only) 
   assert.ok('mcpBridge' in (status.json() as Record<string, unknown>), 'status must expose mcpBridge so the panel can render its switch')
 })
 
-test('issue #201: btwEnabled is settable (boolean) and reported by status', async () => {
-  const writes: Array<[string, unknown]> = []
-  const s = setup({ setOverride: (k: string, v: unknown) => { writes.push([k, v]) } })
-  const route = s.route('/plugins/agy-link/config')
-  const ok = await invoke(route, fakeReq('POST', '/', { key: 'btwEnabled', value: false }))
-  assert.equal(ok.status(), 200)
-  assert.deepEqual(writes, [['btwEnabled', false]])
-  const bad = await invoke(route, fakeReq('POST', '/', { key: 'btwEnabled', value: 'no' }))
-  assert.equal(bad.status(), 400)
-  assert.deepEqual(bad.json(), { error: 'btwEnabled must be a boolean' })
-  const status = await s.call('/plugins/agy-link/status', fakeReq('GET', '/plugins/agy-link/status'))
-  assert.ok('btwEnabled' in (status.json() as Record<string, unknown>), 'status must expose btwEnabled')
-})

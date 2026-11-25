@@ -32,10 +32,9 @@ test('extractLeadingAgySlash captures single-segment commands and ignores file p
   assert.equal(extractLeadingAgySlash('normal chat message'), null)
 })
 
-test('defuseQuotedSlashCommands neutralizes /swarm, /btw, and /fork in history digests', () => {
-  const out = defuseQuotedSlashCommands('Earlier: /swarm run, /btw hello, /fork now, keep /src/btw/a.ts')
+test('defuseQuotedSlashCommands neutralizes /swarm and /fork in history digests', () => {
+  const out = defuseQuotedSlashCommands('Earlier: /swarm run, /fork now, keep /src/btw/a.ts')
   assert.match(out, /\/ swarm run/)
-  assert.match(out, /\/ btw hello/)
   assert.match(out, /\/ fork now/)
   assert.match(out, /\/src\/btw\/a\.ts/)
 })

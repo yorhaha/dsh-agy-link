@@ -9,7 +9,6 @@ import type { AccountPoolManager } from '../pool.ts'
 import type { PoolAuthFlow } from '../pool-auth.ts'
 import type { QuotaService } from '../quota.ts'
 import type { OneShotResult } from '../oneshot.ts'
-import type { EcosystemService } from '../../features/ecosystem/index.ts'
 import type { BackgroundWakeStatus } from '../../common/background-types.ts'
 
 /**
@@ -79,10 +78,8 @@ export interface CommandDeps {
   sessions?: () => { get(id: unknown): unknown } | undefined
   goals?: () => GoalServiceLike | undefined
   agents?: () => { get(id: unknown): unknown } | undefined
-  imageService?: () => import('../image.ts').ImageService
   acpStatus?: () => AcpStatusView
   backgroundStatus?: () => BackgroundWakeStatus
-  ecosystem?: () => EcosystemService
   activeRun?: (sessionId: string) => ActiveRunLike | undefined
   runOnce?: (req: {
     prompt: string
@@ -134,15 +131,10 @@ export const HELP = [
   '- `/agy auth-code <code>` — finish login by pasting the code (fallback)',
   '- `/agy import <refresh_token_or_json> [alias]` (`/agy import-token`) — import account via refresh token or JSON',
   '- `/agy models` — refresh and list discovered models',
-  '- `/agy image <prompt> [-a ratio] [-n name] [-i ref] [-o out] [--model id] [--effort lvl]` (`/agy img`) — generate/edit image',
-  '- `/agy btw <question>` — ask an isolated side question in read-only mode without altering session state',
   '- `/agy fork [list|restore <id>|<prompt>]` — snapshot, branch, or restore an agy conversation fork',
   '- `/agy grill [topic]` / `/agy grill-me [topic]` — structured design interview to surface trade-offs & decisions',
   '- `/agy learn [--apply] [focus]` — distill a reusable Skill or Rule from this session (optionally save to `.agents/`)',
   '- `/agy compact [focus]` — summarize session context and reset the agy conversation binding',
-  '- `/agy plugins [list|enable <id>|disable <id>]` — inspect or toggle installed Antigravity plugins',
-  '- `/agy mcp` / `/agy skills` / `/agy agents [list|use <name>|off]` — inspect MCP servers, skills/rules, and custom agents',
-  '- `/agy sync-ecosystem` / `/agy sync` — mirror primary plugins, skills, rules, agents, and MCP config to pool accounts',
   '- `/agy mode <skip|auto|plan|accept-edits>` — permission mode (next turn)',
   '- `/agy sandbox [on|off]` — toggle OS terminal sandbox (`--sandbox`)',
   '- `/agy agent [name|off]` — select default custom Markdown agent (`--agent`)',
@@ -160,8 +152,6 @@ export const HELP = [
   '- `/agy help` — this text',
   '',
   '**Top-level Quick Commands (`/a*` & `/tsl`)**',
-  '- `/atw <question>` — read-only side question dock (alias of `/agy btw`)',
-  '- `/tsl [turn|--text ...|auto on|off]` — Gemini plain-language translation card',
   '- `/aplan [task]` · `/agoal <obj|status|pause|...>` · `/agrill [topic]` · `/aboost [task]` — direct conversation launch (`/aplan` enforces read-only plan mode)',
   '- `/aswarm <task>` · `/ateamwork <task>` · `/aschedule <task>` · `/abrowser <task>` · `/acmd </cmd|list>` — native agy workflow passthrough into this session',
   '- `/acompact [focus]` · `/afork [list|restore <id>]` · `/alearn [--apply] [focus]` — session compaction, branching, and `.agents/` skill extraction',

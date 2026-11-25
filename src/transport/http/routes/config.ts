@@ -6,7 +6,6 @@ import { runRoute, sendJson, readBody, methodOf, type RawRes, type RouteRegistra
 const PERMISSION_MODES = new Set(['skip', 'auto', 'plan', 'accept-edits'])
 const TRANSPORTS = new Set(['cli', 'acp'])
 const WARMUP_WINDOWS = new Set(['weekly', '5h', 'both'])
-const TRANSLATE_DISPLAYS = new Set(['card', 'replace'])
 
 function validateConfigValue(key: string, value: unknown): string | null {
   if (key === 'hiddenModels') {
@@ -35,12 +34,7 @@ function validateConfigValue(key: string, value: unknown): string | null {
       ? null
       : 'transport must be cli or acp'
   }
-  if (key === 'translateDisplay') {
-    return typeof value === 'string' && TRANSLATE_DISPLAYS.has(value)
-      ? null
-      : 'translateDisplay must be card or replace'
-  }
-  if (key === 'sandbox' || key === 'imageTool' || key === 'syncAccountCustomizations' || key === 'backgroundWakeup' || key === 'mcpBridge' || key === 'btwEnabled' || key === 'cloakSystemPrompt' || key === 'respectExternalSignIn' || key === 'auxNeutralWorkspace') {
+  if (key === 'sandbox' || key === 'backgroundWakeup' || key === 'mcpBridge' || key === 'cloakSystemPrompt' || key === 'respectExternalSignIn' || key === 'auxNeutralWorkspace') {
     return typeof value === 'boolean' ? null : `${key} must be a boolean`
   }
   if (key === 'warmupWindows') {
@@ -70,10 +64,10 @@ function validateConfigValue(key: string, value: unknown): string | null {
       ? null
       : 'warmupMaxProbesPerRun must be a number between 0 and 200 (0 = unlimited)'
   }
-  if (key === 'agent' || key === 'orchestratorPlannerModel' || key === 'orchestratorExecutorModel' || key === 'btwModel') {
+  if (key === 'agent' || key === 'orchestratorPlannerModel' || key === 'orchestratorExecutorModel') {
     return typeof value === 'string' ? null : `${key} must be a string`
   }
-  if (key === 'orchestratorPlannerEffort' || key === 'orchestratorExecutorEffort' || key === 'btwEffort') {
+  if (key === 'orchestratorPlannerEffort' || key === 'orchestratorExecutorEffort') {
     if (typeof value !== 'string') return `${key} must be a string`
     const trimmed = value.trim().toLowerCase()
     if (trimmed !== '' && !isEffortId(trimmed)) {
@@ -114,16 +108,13 @@ function handleConfig(services: HostServices, req: unknown, res: unknown): void 
         const body = await readBody(req)
         const key = typeof body.key === 'string' ? body.key : ''
         const allowed = [
-          'enabled', 'permissionMode', 'sandbox', 'agent', 'agySettings', 'transport', 'imageTool', 'syncAccountCustomizations', 'backgroundWakeup', 'mcpBridge', 'btwEnabled',
+          'enabled', 'permissionMode', 'sandbox', 'agent', 'agySettings', 'transport', 'backgroundWakeup', 'mcpBridge',
           'cloakSystemPrompt', 'respectExternalSignIn', 'auxNeutralWorkspace',
           'defaultModel', 'defaultEffort',
           'orchestratorPlannerModel', 'orchestratorPlannerEffort', 'orchestratorExecutorModel', 'orchestratorExecutorEffort',
           'askTool', 'workspaceRoot', 'hiddenModels',
           'autoWarmup', 'warmupModels', 'warmupWindows', 'warmupDailyTime', 'warmupTimezone', 'warmupIntervalHours', 'warmupMaxProbesPerRun',
-          'autoTranslate', 'translateDisplay', 'translateModel', 'translateEffort', 'translateTargetLanguage', 'translateMaxChars', 'translateSkipSameModel', 'translateBindConversation', 'translateMinIntervalMs',
-          'imageModel', 'imageEffort', 'imageTimeoutMs', 'imageMaxBytes', 'imageOutputDir', 'imageRetries',
-          'btwModel', 'btwEffort',
-          'showHeaderBadge', 'showTranslateAction', 'poolWideCatalog', 'selectedModels',
+          'showHeaderBadge', 'poolWideCatalog', 'selectedModels',
           'quotaPollIntervalMs',
         ]
         if (!allowed.includes(key)) {

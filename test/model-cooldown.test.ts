@@ -3,33 +3,19 @@
 // Google meters image generation against a per-model bucket inside the same
 // `google` family (`quotas.google.models[].modelId = gemini-3.1-flash-image`),
 // so the family is the wrong granularity for a 429. These tests pin the
-// contract: family stays usable, the model cools down, selection skips it, and
-// ImageService rotates locally without moving the global sticky pointer.
+// contract: family stays usable, the model cools down, selection skips it.
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defaultConfig } from '../src/common/types.ts'
 import { baseModelSlug, type ManagedAccount } from '../src/common/pool-types.ts'
 import { isModelQuotaClear } from '../src/domain/accounts/selection.ts'
 import { AccountPoolManager } from '../src/host/pool.ts'
-import { ImageService } from '../src/features/image/service.ts'
 
 const IMAGE = 'gemini-3.1-flash-image'
 const DRIVER = 'gemini-4-neon'
-
-function pngFile(dir: string): string {
-  const file = join(dir, 'ok.png')
-  const png = Buffer.alloc(24)
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0)
-  png.writeUInt32BE(13, 8)
-  png.write('IHDR', 12, 'ascii')
-  png.writeUInt32BE(512, 16)
-  png.writeUInt32BE(512, 20)
-  writeFileSync(file, png)
-  return file
-}
 
 function fullGoogle(pool: AccountPoolManager, id: string, imageFraction = 1): void {
   pool.updateAccountQuotas(id, {
@@ -107,71 +93,6 @@ describe('model-scoped cooldown', () => {
       // With the image bucket as a second dimension, the drained account is skipped.
       assert.equal(pool.selectAccount('google', DRIVER, IMAGE)?.id, b.id)
       assert.equal(isModelQuotaClear(a, 'google', IMAGE, Date.now()), false)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('ImageService model-scoped rotation', () => {
-  test('rotates locally on an image 429 without cooling the family or moving the pointer', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'agy-img-model-rot-'))
-    try {
-      const { pool, a } = twoAccounts(root)
-      pool.markAccountActive(a.id, 'google')
-      const pointerBefore = pool.getActiveAccountId('google')
-      const okImg = pngFile(root)
-      let calls = 0
-      let sawQuotaModel: string | undefined
-      let sawExclusions: readonly string[] | undefined
-
-      const service = new ImageService({
-        cfg: () => ({ ...defaultConfig(), imageRetries: 0, imageModel: DRIVER }),
-        bin: () => '/fake/agy',
-        poolQuotaHops: () => 1,
-        imageQuotaModel: () => IMAGE,
-        onQuotaExhausted: (accId, model, errText, quotaModel) => {
-          if (accId) pool.recordModelFailure(accId, quotaModel ?? model, errText)
-          return pool.findAccount('google', model, quotaModel) !== null
-        },
-        onModelSuccess: (accId, quotaModel) => pool.recordModelSuccess(accId, quotaModel),
-        run: async (call) => {
-          calls++
-          sawQuotaModel = call.quotaModel
-          sawExclusions = call.excludeAccountIds
-          const usable = pool
-            .getAccounts()
-            .find((acc) => acc.enabled && isModelQuotaClear(acc, 'google', IMAGE, Date.now()) && !(call.excludeAccountIds ?? []).includes(acc.id))
-          assert.ok(usable, 'the local rotation must keep a usable account')
-          if (calls === 1) {
-            return {
-              ok: true,
-              text: 'quota error',
-              accountId: usable.id,
-              toolCalls: [{ name: 'generate_image', error: 'RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model. Your quota will reset after 4h.' }],
-              subagents: [],
-              durationMs: 5,
-            }
-          }
-          return {
-            ok: true,
-            text: 'IMAGE_PATH=' + okImg,
-            accountId: usable.id,
-            toolCalls: [{ name: 'generate_image', output: 'ok' }],
-            subagents: [],
-            durationMs: 5,
-          }
-        },
-      })
-
-      const res = await service.generate({ prompt: 'a cat' })
-      assert.equal(res.ok, true, res.error)
-      assert.equal(calls, 2)
-      assert.equal(sawQuotaModel, IMAGE, 'the image bucket is passed to selection and the failover hook')
-      assert.deepEqual(sawExclusions, [a.id], 'the failed account is excluded from the same request')
-      assert.equal(pool.getActiveAccountId('google'), pointerBefore, 'the global sticky pointer must not move')
-      assert.equal(pool.getAccount(a.id)?.cooldowns.google, undefined, 'no family cooldown')
-      assert.ok(pool.getAccount(a.id)?.modelCooldowns?.[baseModelSlug(IMAGE)], 'only the image model cools down')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -8,12 +8,9 @@ import { register as registerSessionView } from './routes/session-view.ts'
 import { register as registerPool } from './routes/pool.ts'
 import { register as registerAuth } from './routes/auth.ts'
 import { register as registerConfig } from './routes/config.ts'
-import { register as registerTranslate } from './routes/translate.ts'
 import { register as registerMedia } from './routes/media.ts'
 import { register as registerEmbed } from './routes/embed.ts'
-import { register as registerEcosystem } from './routes/ecosystem.ts'
 import { register as registerLease } from './routes/lease.ts'
-import { register as registerBtw } from './routes/btw.ts'
 
 export type { WebServerLike, Route, RouteHandler, RouteRegistrar } from './respond.ts'
 
@@ -28,11 +25,8 @@ export function registerRoutes(webServer: WebServerLike, services: HostServices)
   registerPool(reg, services)
   registerAuth(reg, services)
   registerConfig(reg, services)
-  registerTranslate(reg, services)
   registerMedia(reg, services)
   registerEmbed(reg, services)
-  registerEcosystem(reg, services)
-  registerBtw(reg, services)
   const disposeLease = registerLease(reg, services, webServer.port)
   return () => {
     disposeLease()

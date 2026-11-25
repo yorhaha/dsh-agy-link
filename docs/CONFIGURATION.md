@@ -18,7 +18,6 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | `agent` | `DSH_AGY_AGENT` | `''` (agy default) | Default custom Markdown agent name (`--agent`) |
 | `agySettings` | `DSH_AGY_SETTINGS` | `''` | Inline JSON object or file path passed to `agy --settings` |
 | `transport` | `DSH_AGY_TRANSPORT` | `acp` | `acp` (default) keeps one persistent `agy acp` process per account and session, so background commands, subagents and timers keep running after a turn ends and report back on their own, and per-call usage/cache metrics stay accurate. `cli` runs one-shot `agy -p` per turn (background work dies with the process); switch with `/agy config transport cli`, `/agy transport cli` or the settings page. A pre-stream ACP failure and a no-output ACP turn fall back to `cli` automatically |
-| `syncAccountCustomizations` | `DSH_AGY_SYNC_CUSTOMIZATIONS` | `true` | Mirror primary `plugins`, `skills`, `rules`, `agents`, and MCP config into isolated pool accounts (credentials/keychains never touched) |
 | `workspaceRoot` | `DSH_AGY_WORKSPACE_ROOT` | `''` (session cwd) | Workspace root passed to agy |
 
 ## Models and effort
@@ -103,62 +102,6 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | `warmupMaxProbesPerRun` | `DSH_AGY_WARMUP_MAX_PROBES` | `12` | Max probes per warmup pass (`0` = unlimited) |
 | `suppressAgyAutoUpdate` | `DSH_AGY_SUPPRESS_AUTOUPDATE` | `true` on Windows, `false` elsewhere | Refresh agy's update-check timestamp before every spawn to stop the `--bg-updater` console flash chain |
 
-## Translation (`/tsl`)
-
-| Key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `autoTranslate` | `DSH_AGY_AUTO_TRANSLATE` | `false` | Translate every completed turn |
-| `translateModel` | `DSH_AGY_TRANSLATE_MODEL` | `gemini-3.8-flash` | Translate model, with catalog fallback |
-| `translateEffort` | `DSH_AGY_TRANSLATE_EFFORT` | `low` | Reasoning effort for the translate model (`low` faster, `medium` / `high` more rigorous) |
-| `translateTargetLanguage` | `DSH_AGY_TRANSLATE_LANG` | `中文（简体）` | Target language wording in the prompt |
-| `translateDisplay` | `DSH_AGY_TRANSLATE_DISPLAY` | `'card'` | Translation presentation mode (`card` below reply or `replace`) |
-| `translateMaxChars` | `—` | `8000` | Source truncation limit |
-| `translateMaxTokens` | `—` | `4096` | Output token cap |
-| `translateTimeoutMs` | `—` | `120000` | Per-translation timeout |
-| `translateRetries` | `—` | `2` | Retries on retryable failures (account stall, empty answer) |
-| `translateSkipSameModel` | `—` | `true` | Skip translation when the reply already came from the translate model |
-| `translateBindConversation` | `—` | `true` | One agy conversation per DSH session, persona sent once |
-| `translateMinIntervalMs` | `—` | `3000` | Minimum spacing between automatic translations |
-
-`translateModel` and `translateEffort` are also editable in **DSH Settings → Antigravity**, on the auto-translate row (two dropdowns next to the on/off control). Leaving them on their default option hands the choice back to the fallback chain above.
-
-## Image generation (`agy_image` / `/agy image` / `dsh-agy-image`)
-
-| Key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `imageTool` | `DSH_AGY_IMAGE_TOOL` | `true` | Register the `agy_image` DSH tool so any DSH model can generate or edit images via Antigravity |
-| `imageModel` | `DSH_AGY_IMAGE_MODEL` | (empty) | Chat model that drives the `generate_image` / `image-generator` call; empty → `defaultModel` → `gemini-4-hydrogen` (when discovered) → `gemini-3.8-flash` |
-| `imageEffort` | `DSH_AGY_IMAGE_EFFORT` | `medium` | Reasoning effort for prompt planning and visual self-review (balanced quality and latency) |
-| `imageTimeoutMs` | `DSH_AGY_IMAGE_TIMEOUT_MS` | `240000` | Wall-clock cap for one image generation |
-| `imageMaxBytes` | `DSH_AGY_IMAGE_MAX_BYTES` | `20971520` | Largest artifact the plugin accepts (20 MiB) |
-| `imageOutputDir` | `DSH_AGY_IMAGE_OUTPUT_DIR` | (empty) | Default directory to copy finished images into |
-| `imageRetries` | `DSH_AGY_IMAGE_RETRIES` | `1` | Extra attempts after a retryable failure (each may pick another account) |
-
-Image generation is exposed across three entry points — the in-chat **`agy_image`** DSH tool, the **`/agy image`** (`/agy img`) slash command, and the **`dsh-agy-image`** CLI (`image-generator` subagent steps also render as inline image preview cards):
-
-```bash
-dsh-agy-image -p "一只柴犬，扁平插画风" -a 16:9 -o ./dog.jpg
-dsh-agy-image -p "把背景换成夜晚" -i ./day.png --json
-```
-
-There is no HTTP endpoint. Settings → Antigravity exposes `imageModel` / `imageEffort`, the `imageTool` toggle, and a copyable
-`dsh-agy-image` command next to the translation row.
-
-All three entry points use the plugin's real `AgyAdapter` (`ImageService` with
-`purpose:'image'`), so account selection, quota cooldown/rotation, proxy, failure
-classification and the retry-on-effort-refusal all come from the same code path a
-normal turn uses. `--json` returns the validated artifact (`path`, `mime`,
-`width`, `height`, `bytes`, `aspectRatio`, `accountId`) or a stable failure `code`.
-
-## Side questions (`/atw`)
-
-| Key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `btwModel` | `DSH_AGY_BTW_MODEL` | (empty) | Antigravity model for `/atw` read-only side questions; empty → `defaultModel` → Gemini 4 Hydrogen → Gemini Flash |
-| `btwEffort` | `DSH_AGY_BTW_EFFORT` | `medium` | Reasoning effort for `/atw` (`medium` balanced, `low` faster, `high` deeper) |
-
-Both are editable in **Settings → Antigravity** (in the `/atw Side Questions` card).
-
 ## Orchestrator & security options
 
 | Key | Environment | Default | Description |
@@ -168,16 +111,15 @@ Both are editable in **Settings → Antigravity** (in the `/atw Side Questions` 
 | `orchestratorExecutorModel` | `DSH_AGY_ORCHESTRATOR_EXECUTOR_MODEL` | `''` | Executor model override passed via `--settings` when an Orchestrator model is active |
 | `orchestratorExecutorEffort` | `DSH_AGY_ORCHESTRATOR_EXECUTOR_EFFORT` | `''` | Executor reasoning effort override for Orchestrator turns |
 | `cloakSystemPrompt` | `DSH_AGY_CLOAK_SYSTEM_PROMPT` | `true` | Replace DSH-specific wording/paths in injected prompts with neutral Antigravity phrasing |
-| `auxNeutralWorkspace` | `DSH_AGY_AUX_NEUTRAL_WORKSPACE` | `true` | Run auxiliary/side-channel turns (`btw`, translation, title, compaction) in a clean neutral cwd instead of leaking the user workspace |
+| `auxNeutralWorkspace` | `DSH_AGY_AUX_NEUTRAL_WORKSPACE` | `true` | Run auxiliary/side-channel turns (title, compaction) in a clean neutral cwd instead of leaking the user workspace |
 
 ## Client UI visibility (issue #105)
 
 | Key | Environment | Default | Description |
 | --- | --- | --- | --- |
 | `showHeaderBadge` | `DSH_AGY_SHOW_HEADER_BADGE` | `true` | Show the AGY status badge in the conversation header toolbar; `false` hides it (the console dialog stays reachable from Settings). On viewports ≤ 680 px the badge label is hidden automatically, leaving the status dot |
-| `showTranslateAction` | `DSH_AGY_SHOW_TRANSLATE_ACTION` | `true` | Show the per-reply "translate to plain language" button; `false` hides only that button, not the translation cards or `/tsl` |
 
-Both are opt-out (only an explicit `false` hides anything), settable from **Settings → Antigravity**, and take effect on the next 3 s status poll without a reload. See `.spec/ui-visibility.md`.
+The switch is opt-out (only an explicit `false` hides anything), settable from **Settings → Antigravity**, and take effect on the next 3 s status poll without a reload. See `.spec/ui-visibility.md`.
 
 ## Diagnostics
 

@@ -84,10 +84,9 @@ export function runBootHygiene(services: HostServices): void {
   } catch {
     // best-effort
   }
-  // Staging/log sweeps and the ecosystem mirror are NOT done here: on a pool of
-  // 8 accounts they are hundreds of file stats plus a full copy into every
-  // isolated home, all before the first frame. scheduleBootMaintenance() runs
-  // them once, deferred (see boot-maintenance.ts).
+  // Staging/log sweeps are NOT done here: on a pool of 8 accounts they are
+  // hundreds of file stats before the first frame. scheduleBootMaintenance()
+  // runs them once, deferred (see boot-maintenance.ts).
   // Provision per-account login keychains for isolated pool homes (macOS):
   // without one, agy's keyring save pops the system "create login keychain"
   // password dialog on every token refresh. Idempotent; pre-existing homes

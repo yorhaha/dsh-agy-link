@@ -32,11 +32,10 @@ export const ROUTE_TIMEOUT_MS = 30_000
 export const ROUTE_DEADLINE_SLACK_MS = 15_000
 
 /**
- * Deadline for a route that fronts a genuinely long job (a translation is a
- * full agy turn: `translateTimeoutMs` defaults to 120s and medium effort
- * typically takes 20–45s). The general 30s route deadline would answer 504
- * first, and because `sendJson` is exactly-once the real 200 would then be
- * discarded — every slow translation would look like a failure.
+ * Deadline for a route that fronts a genuinely long job (e.g. a lease hold or
+ * a full agy turn, which can take 20–45s+). The general 30s route deadline
+ * would answer 504 first, and because `sendJson` is exactly-once the real 200
+ * would then be discarded — every slow job would look like a failure.
  */
 export function longRouteTimeout(jobTimeoutMs: number): number {
   const budget = Number.isFinite(jobTimeoutMs) && jobTimeoutMs > 0 ? jobTimeoutMs : ROUTE_TIMEOUT_MS

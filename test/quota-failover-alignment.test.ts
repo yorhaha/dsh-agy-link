@@ -29,8 +29,6 @@ import { runAgyOnce } from '../src/host/oneshot.ts'
 import { EventMapper } from '../src/provider/mapper/event-mapper.ts'
 import { driveSpan } from '../src/provider/span.ts'
 import { SubagentTracker } from '../src/features/subagent/tracker.ts'
-import { ImageService } from '../src/features/image/service.ts'
-import { TranslationService } from '../src/features/translation/service.ts'
 import { AcpProcess, AcpSessionPool, runAcpAttempt } from '../src/features/acp/index.ts'
 import type { AttemptDeps, AttemptInput, AttemptSlot } from '../src/provider/attempt.ts'
 
@@ -462,99 +460,6 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
       else process.env.FAKE_AGY_INVOCATION_FILE = prevInv
       rmSync(root, { recursive: true, force: true })
     }
-  })
-
-  test('8. ImageService rotates across 4 accounts on tool-level 429 QUOTA_EXHAUSTED even when imageRetries=1', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'agy-img-failover-'))
-    try {
-      const pool = new AccountPoolManager(join(root, 'pool'))
-      pool.createAccountSlot('Acc2')
-      pool.createAccountSlot('Acc3')
-      pool.createAccountSlot('Acc4')
-      let runIdx = 0
-      const okImg = join(root, 'ok.png')
-      const png = Buffer.alloc(24)
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0)
-      png.writeUInt32BE(13, 8)
-      png.write('IHDR', 12, 'ascii')
-      png.writeUInt32BE(512, 16)
-      png.writeUInt32BE(512, 20)
-      writeFileSync(okImg, png)
-
-      const service = new ImageService({
-        cfg: () => ({ ...defaultConfig(), imageRetries: 1 }),
-        bin: () => '/fake/agy',
-        poolQuotaHops: () => Math.max(0, pool.getAccounts().filter((a) => a.enabled).length - 1),
-        onQuotaExhausted: (accId, model, errText) => {
-          if (accId) pool.recordFailure(accId, 'google', errText)
-          return pool.selectAccount('google', model) !== null
-        },
-        run: async () => {
-          const active = pool.selectAccount('google')!
-          runIdx++
-          if (runIdx <= 3) {
-            return {
-              ok: true,
-              text: 'quota error',
-              accountId: active.id,
-              toolCalls: [{ name: 'generate_image', error: '429 Too Many Requests {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"reason":"QUOTA_EXHAUSTED","metadata":{"model":"gemini-3.1-flash-image","quotaResetDelay":"4h58m46s"}}]}}' }],
-              subagents: [],
-              durationMs: 5,
-            }
-          }
-          return {
-            ok: true,
-            text: 'IMAGE_PATH=' + okImg,
-            accountId: active.id,
-            toolCalls: [{ name: 'generate_image', output: 'ok' }],
-            subagents: [],
-            durationMs: 5,
-          }
-        },
-      })
-      const res = await service.generate({ prompt: 'a cat', aspectRatio: '1:1' })
-      assert.equal(res.ok, true, res.error)
-      assert.equal(runIdx, 4)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  test('9. TranslationService allows RATE_LIMIT retries up to poolQuotaHops while bounding non-quota errors', async () => {
-    const cfg = { ...defaultConfig(), translateRetries: 1 }
-    const fallbackCatalog = cfg.fallbackModels.map((m) => ({ ...m, efforts: m.efforts ?? null }))
-    let calls = 0
-    const service = new TranslationService({
-      cfg: () => cfg,
-      catalog: () => ({ source: 'fallback', models: fallbackCatalog, fetchedAt: 0, discoveredAt: 0 }),
-      getSession: () => undefined,
-      poolQuotaHops: () => 3,
-      run: async () => {
-        calls++
-        if (calls < 4) return { ok: false, text: '', code: Err.RATE_LIMIT, error: 'quota reached' }
-        return { ok: true, text: 'translated ok' }
-      },
-      now: (() => { let t = 1000; return () => (t += 10) })(),
-    })
-    const res = await service.translate({ text: 'technical jargon' })
-    assert.equal(res.ok, true, res.error)
-    assert.equal(calls, 4)
-
-    let errCalls = 0
-    const service2 = new TranslationService({
-      cfg: () => cfg,
-      catalog: () => ({ source: 'fallback', models: fallbackCatalog, fetchedAt: 0, discoveredAt: 0 }),
-      getSession: () => undefined,
-      poolQuotaHops: () => 5,
-      run: async () => {
-        errCalls++
-        return { ok: false, text: '', code: Err.TIMEOUT, error: 'timed out' }
-      },
-      now: (() => { let t = 1000; return () => (t += 10) })(),
-    })
-    const res2 = await service2.translate({ text: 'more jargon' })
-    assert.equal(res2.ok, false)
-    assert.equal(errCalls, 2)
   })
 
   test('10. runAcpAttempt treats partial-response 429 quota error as RATE_LIMIT and rotates account', async () => {

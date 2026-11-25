@@ -18,7 +18,6 @@ import { selectSessionAccount } from '../src/provider/account-selection.ts'
 import type { AccountPoolManager } from '../src/host/pool.ts'
 import { agyFetch } from '../src/host/net.ts'
 import { defineAgyAskTool, resolveAskModel } from '../src/host/ask-tool.ts'
-import { resolveTranslateTarget } from '../src/features/translation/target.ts'
 import { defaultConfig, type PluginConfig } from '../src/common/types.ts'
 import type { ManagedAccount } from '../src/common/pool-types.ts'
 import type { Catalog } from '../src/host/models.ts'
@@ -614,72 +613,6 @@ test('agy_ask: explicit effort, readPaths and learned-refusal branches reach the
     () => tool2.execute({ prompt: 'x', model: 'flash' }, { signal: new AbortController().signal }),
     /agy binary not found/,
   )
-})
-
-// ===== 6a. translation/target =============================================
-
-const tCatalog: Catalog = {
-  source: 'fallback',
-  discoveredAt: 0,
-  models: [
-    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', efforts: ['low', 'medium', 'high'] },
-    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash', efforts: ['low', 'medium', 'high'] },
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', efforts: null },
-  ],
-}
-const tCfg = (over: Partial<PluginConfig> = {}): PluginConfig => ({ ...defaultConfig(), ...over })
-
-test('resolveTranslateTarget: explicit listed model + default effort', () => {
-  const out = resolveTranslateTarget(tCfg({ translateEffort: 'low' }), tCatalog)
-  assert.equal(out.model, 'gemini-3.8-flash')
-  assert.equal(out.effort, 'low')
-})
-
-test('resolveTranslateTarget: explicit unlisted override resolves via slug', () => {
-  const out = resolveTranslateTarget(tCfg(), tCatalog, { model: 'claude-sonnet', effort: 'high' })
-  assert.equal(out.model, 'claude-sonnet-5-5')
-  assert.equal(out.effort, '')
-})
-
-test('resolveTranslateTarget: default chain falls through to the newest flash', () => {
-  const catalog: Catalog = {
-    source: 'fallback',
-    discoveredAt: 0,
-    models: [
-      { id: 'gemini-3.1-flash', name: 'a', efforts: null },
-      { id: 'gemini-9.9-flash', name: 'b', efforts: null },
-      { id: 'other-model', name: 'c', efforts: null },
-    ],
-  }
-  const out = resolveTranslateTarget(tCfg({ translateModel: '', defaultModel: '' }), catalog)
-  assert.equal(out.model, 'gemini-9.9-flash')
-})
-
-test('resolveTranslateTarget: defaultModel candidate when gemini-3.8 is absent', () => {
-  const catalog: Catalog = {
-    source: 'fallback',
-    discoveredAt: 0,
-    models: [{ id: 'custom-flash', name: 'c', efforts: null }],
-  }
-  const out = resolveTranslateTarget(tCfg({ translateModel: '', defaultModel: 'custom-flash' }), catalog)
-  assert.equal(out.model, 'custom-flash')
-})
-
-test('resolveTranslateTarget: empty catalog yields an empty model', () => {
-  const out = resolveTranslateTarget(tCfg({ translateModel: '', defaultModel: '' }), { source: 'fallback', discoveredAt: 0, models: [] })
-  assert.deepEqual(out, { model: '', effort: '' })
-})
-
-test('resolveTranslateTarget: wanted effort not offered falls back to the default', () => {
-  const out = resolveTranslateTarget(tCfg({ translateEffort: 'ultra' }), tCatalog)
-  assert.equal(out.model, 'gemini-3.8-flash')
-  assert.equal(out.effort, 'high')
-})
-
-test('resolveTranslateTarget: a fixed-effort model yields an empty effort', () => {
-  const out = resolveTranslateTarget(tCfg({ translateModel: 'claude-sonnet-4-6' }), tCatalog)
-  assert.equal(out.model, 'claude-sonnet-4-6')
-  assert.equal(out.effort, '')
 })
 
 // ===== 6b. quota/token ====================================================

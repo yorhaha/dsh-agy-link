@@ -105,12 +105,10 @@ function baseTabProps(tab: ConsoleTabId, dict: Record<string, string> = zh): Con
 		setMode: async () => {},
 		setSelectedModels: async () => {},
 		setHiddenModels: async () => {},
-		copyImageCommand: () => {},
-		showToast: () => {},
 	}
 }
 
-test('console tabs separate accounts, models/orchestrator, features, and runtime/ecosystem cleanly', () => {
+test('console tabs separate accounts, models/orchestrator, features, and runtime cleanly', () => {
 	// 1. Accounts tab: shows account pool + schedule/warmup card, keeps other tabs out
 	const accountsHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('accounts'))))
 	assert.ok(accountsHtml.includes('role="tablist"'))
@@ -126,38 +124,24 @@ test('console tabs separate accounts, models/orchestrator, features, and runtime
 	assert.ok(modelsHtml.includes('Gemini 4 Neon'))
 	assert.ok(modelsHtml.includes(zh['section.thinkingOrchestrator']))
 	assert.ok(modelsHtml.includes(zh['config.orchestratorPlanner']))
-	assert.equal(modelsHtml.includes(zh['config.autoTranslate']), false)
 
-	// 3. Features tab: groups translation + image + UI display together
+	// 3. Features tab: groups UI display
 	const featuresHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('features'))))
-	assert.ok(featuresHtml.includes(zh['section.translation']))
-	assert.ok(featuresHtml.includes(zh['config.autoTranslate']))
-	assert.ok(featuresHtml.includes(zh['config.showTranslateAction']))
-	assert.ok(featuresHtml.includes(zh['section.imageGen']))
-	assert.ok(featuresHtml.includes('dsh-agy-image'))
-	assert.ok(featuresHtml.includes(zh['config.imageTool']))
-	assert.ok(featuresHtml.includes(zh['section.btw']))
-	assert.ok(featuresHtml.includes(zh['config.btw']))
 	assert.ok(featuresHtml.includes(zh['section.uiDisplay']))
 	assert.ok(featuresHtml.includes(zh['config.showHeaderBadge']))
 
-	// 4. Runtime tab: execution controls + ecosystem sync + EcosystemPanel (no duplicate imageTool)
+	// 4. Runtime tab: execution controls
 	const runtimeHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('runtime'))))
 	assert.ok(runtimeHtml.includes(zh['section.execution']))
 	assert.ok(runtimeHtml.includes(zh['config.permissionMode']))
 	assert.ok(runtimeHtml.includes(zh['config.transport']))
-	assert.ok(runtimeHtml.includes(zh['section.ecosystem']))
-	assert.ok(runtimeHtml.includes(zh['config.syncCustomizations']))
-	assert.ok(runtimeHtml.includes(zh['eco.heading']))
-	assert.equal(runtimeHtml.includes(zh['config.imageTool']), false)
 
 	// 5. All 4 locales define every new tab & section key
 	const keys = [
 		'tab.accounts', 'tab.models', 'tab.features', 'tab.runtime',
 		'section.poolSchedule', 'section.warmupSettings', 'section.modelCatalog',
-		'section.thinkingOrchestrator', 'section.translation', 'section.imageGen',
-		'section.btw', 'config.btw', 'config.btwDesc', 'config.btwModel', 'config.btwModelDesc', 'config.btwEffort', 'config.btwEffortDesc',
-		'section.uiDisplay', 'section.execution', 'section.ecosystem',
+		'section.thinkingOrchestrator',
+		'section.uiDisplay', 'section.execution',
 	] as const
 	for (const dict of [zh, en, es, ptBR]) {
 		for (const k of keys) {
@@ -179,10 +163,7 @@ test('SettingsSection switches tabs interactively, remembers selection, and jump
 	Object.defineProperty(globalThis, 'fetch', {
 		configurable: true,
 		writable: true,
-		value: async (url: string) => {
-			if (url.includes('/ecosystem')) {
-				return { ok: true, status: 200, json: async () => ({ ok: true, primaryHome: '/h', plugins: [], mcpServers: [], skills: [], rules: [], agents: [], syncedAccountCount: 0, lastSyncAt: null }) }
-			}
+		value: async (_url: string) => {
 			return { ok: true, status: 200, json: async () => baseStatus() }
 		},
 	})

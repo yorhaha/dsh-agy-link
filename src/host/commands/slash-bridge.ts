@@ -1,4 +1,4 @@
-// /agy slash-command bridges: btw, fork, grill / grill-me, learn, and compact.
+// /agy slash-command bridges: fork, grill / grill-me, learn, and compact.
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -7,7 +7,7 @@ import { writeFileAtomicSync } from '../../common/atomic-write.ts'
 import { stateDir } from '../../common/config.ts'
 import { isGeminiFamilyModel, PREFERRED_GEMINI_FLASH, PREFERRED_GEMINI_HYDROGEN } from '../../common/model-lineup.ts'
 import { err, ok, type CommandContext, type CommandDeps } from './shared.ts'
-import { extractLiveRunProgress, parseJsonPayload, resolveSessionContext } from './slash-context.ts'
+import { parseJsonPayload, resolveSessionContext } from './slash-context.ts'
 
 export interface ForkCheckpoint {
   id: string
@@ -58,22 +58,6 @@ function resolveSideModel(deps: CommandDeps): string {
   return PREFERRED_GEMINI_FLASH
 }
 
-function resolveBtwModel(deps: CommandDeps): string {
-  const btwModel = (deps.cfg().btwModel ?? '').trim()
-  if (btwModel !== '') return btwModel
-  const explicit = deps.cfg().defaultModel.trim()
-  if (explicit !== '') return explicit
-  const cat = deps.catalog?.()?.get?.()
-  if (cat?.source === 'discovered' && cat.models.length > 0) {
-    if (cat.models.some((m) => m.id === PREFERRED_GEMINI_HYDROGEN)) return PREFERRED_GEMINI_HYDROGEN
-    if (cat.models.some((m) => m.id === PREFERRED_GEMINI_FLASH)) return PREFERRED_GEMINI_FLASH
-    const gemini = cat.models.find((m) => isGeminiFamilyModel(m.id))
-    if (gemini) return gemini.id
-    return cat.models[0]!.id
-  }
-  return PREFERRED_GEMINI_HYDROGEN
-}
-
 function readForkStore(file: string): Record<string, ForkCheckpoint[]> {
   try {
     if (!existsSync(file)) return {}
@@ -113,34 +97,6 @@ function dropBindingsForSession(deps: CommandDeps, sessionId?: string): number {
   }
   for (const [k] of matches) store.delete(k)
   return matches.length
-}
-
-async function handleBtw(deps: CommandDeps, ctx: CommandContext): Promise<CommandResult> {
-  const question = extractAfterSub(ctx, 'btw')
-  if (!question) return err('Usage: /agy btw <side question>')
-  if (!deps.runOnce) return err('One-shot agy runner is not configured in this host.')
-  const { sessionId, workspaceRoot, historyText } = resolveSessionContext(deps, ctx)
-  const liveProgress = extractLiveRunProgress(deps, sessionId)
-  const prompt = [
-    'Answer this quick side question directly and concisely based on the session context and live progress below.',
-    'You may use read_file on workspace files only if strictly necessary; do NOT run shell commands (run_command), do NOT modify files, and do NOT take over the main task.',
-    ...(historyText ? ['<session_context>', historyText, '</session_context>'] : []),
-    ...(liveProgress ? ['<live_run_progress>', liveProgress, '</live_run_progress>'] : []),
-    '<side_question>',
-    question,
-    '</side_question>',
-  ].join('\n\n')
-  const res = await deps.runOnce({
-    prompt,
-    mode: 'default',
-    disableSlashCommands: true,
-    cwd: workspaceRoot,
-    model: resolveBtwModel(deps),
-    effort: (deps.cfg().btwEffort ?? '').trim() || 'medium',
-    ...(ctx.invocation?.signal ? { signal: ctx.invocation.signal } : {}),
-  })
-  if (!res.ok) return err(`Side question failed: ${res.error ?? 'unknown error'}`)
-  return ok(`**Side Answer (\`/agy btw\`)**\n\n${res.text}`)
 }
 
 export async function handleFork(deps: CommandDeps, ctx: CommandContext): Promise<CommandResult> {
@@ -380,8 +336,6 @@ export async function handleCompact(deps: CommandDeps, ctx: CommandContext): Pro
 
 export async function handleSlashBridge(deps: CommandDeps, ctx: CommandContext): Promise<CommandResult> {
   switch (ctx.sub) {
-    case 'btw':
-      return handleBtw(deps, ctx)
     case 'fork':
       return handleFork(deps, ctx)
     case 'grill':

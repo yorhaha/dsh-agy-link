@@ -1,6 +1,6 @@
 // Antigravity settings console: header, OAuth form, and tabbed module router.
 
-import { win, WRITE_TIMEOUT_MS } from '../api.ts';
+import { WRITE_TIMEOUT_MS } from '../api.ts';
 import type { AccountPoolData } from '../../common/pool-types.ts';
 import type { QuotaFamily } from '../../common/quota-bench.ts';
 import { type EffortLabels } from '../config-options.ts';
@@ -18,7 +18,6 @@ import { Button } from '../ui/Button.ts';
 import { Spinner } from '../ui/Spinner.ts';
 import { Toast, type ToastNotice, type ToastType } from '../ui/Toast.ts';
 import { renderConsoleTabContent, type ConsoleTabId } from './ConsoleTabs.ts';
-import { IMAGE_CLI_SAMPLE } from './ImageSettingsRows.ts';
 
 let rememberedConsoleTab: ConsoleTabId = 'accounts';
 
@@ -114,17 +113,6 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 			proxyInputs, setEditingProxyId, aliasInputs, setEditingAliasId, setOptimisticActiveByFamily,
 		});
 
-		const copyImageCommand = (): void => {
-			const clip = win.navigator?.clipboard;
-			if (clip?.writeText === undefined) {
-				showToast(t('config.imageCopyFailed'), 'warn');
-				return;
-			}
-			void clip.writeText(IMAGE_CLI_SAMPLE)
-				.then(() => showToast(t('config.imageCopied'), 'success'))
-				.catch(() => showToast(t('config.imageCopyFailed'), 'warn'));
-		};
-
 		const toggleExpand = (accId: string) => setExpandedModels((prev) => ({ ...prev, [accId]: !prev[accId] }));
 		const authPhase = status?.auth?.phase ?? 'unknown';
 		const pool = status?.pool;
@@ -161,7 +149,6 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 				accountHandlers: { ...accountActions, beginReauth: auth.handleBeginReauth },
 				setCfg: config.setCfg, setMode: config.setMode, setSelectedModels: config.setSelectedModels,
 				setHiddenModels: (ids: ReadonlyArray<string>) => config.setCfg('hiddenModels', [...ids]),
-				copyImageCommand, showToast,
 			}),
 		);
 	};
@@ -382,7 +369,7 @@ function renderAddAccountSection(
  */
 function effortLabels(t: Translator): EffortLabels {
 	return {
-		auto: t('config.translateEffortAuto'),
+		auto: t('config.effortAuto'),
 		level: (id: string) => {
 			const key = ('effort.' + id) as Parameters<Translator>[0];
 			const localised = t(key);

@@ -37,8 +37,6 @@ import {
 import { AgyMirrorToolView } from '../src/client/toolview/index.ts';
 import { AgyCodeToolView, AgyRunCodeToolView, runCodeModel } from '../src/client/toolview/run-code-view.ts';
 import { clearExpandedToolBlockKeysForTest, expandToolBlockKeyForTest } from '../src/client/toolview/toggle.ts';
-import { TranslationCard } from '../src/client/translate-card.ts';
-import { actionStateOf, setActionState, TranslateAction } from '../src/client/translate-state.ts';
 import {
 	isMermaidBlock,
 	isMermaidFence,
@@ -236,108 +234,6 @@ test('run_code view: agy mirror wrapper renders the native Antigravity card', ()
 	const html = renderToStaticMarkup(createElement(AgyRunCodeToolView, { block }));
 	assert.match(html, /data-kind="read"/);
 	assert.match(html, /class="agy-tv-root"/);
-});
-
-// ---------------------------------------------------------------------------
-// 2. Translation card + action
-// ---------------------------------------------------------------------------
-
-const TSL_T: Record<string, string> = {
-	'tsl.badge': 'Gemini 译文',
-	'tsl.copy': '复制',
-	'tsl.copied': '已复制',
-	'tsl.collapse': '收起',
-	'tsl.expand': '展开',
-	'tsl.showOriginal': '显示原文',
-	'tsl.hideOriginal': '隐藏原文',
-	'tsl.actionTip': '用 Gemini 把这条回复译成人话',
-	'tsl.translating': '翻译中…',
-	'tsl.done': '已生成译文',
-	'tsl.retry': '重试',
-};
-const tslT = (key: string): string => TSL_T[key] ?? key;
-
-function renderCard(props: Record<string, unknown>): string {
-	return renderToStaticMarkup(createElement(TranslationCard, props));
-}
-
-test('translation card: localized banner, meta, markdown body and action buttons', () => {
-	const html = renderCard({
-		node: { data: { text: '这是译文。', original: 'This is the original.', model: 'gemini-3.8-flash', effort: 'high', accountId: 'acc-1' } },
-		t: tslT,
-	});
-	assert.match(html, /data-agy-translation="gemini"/);
-	assert.match(html, /class="agy-tsl-card"/);
-	assert.match(html, /class="agy-tsl-head"/);
-	assert.match(html, /class="agy-tsl-mark"/);
-	assert.ok(html.includes('Gemini 译文'), 'localized badge');
-	assert.ok(html.includes('gemini-3.8-flash · high · acc-1'), 'model/effort/account meta');
-	assert.match(html, /class="agy-tsl-body"/);
-	assert.ok(html.includes('这是译文。'), 'translated body');
-	assert.ok(html.includes('显示原文'), 'show-original button');
-	assert.ok(html.includes('复制'), 'copy button');
-	assert.ok(html.includes('收起'), 'collapse button');
-	assert.ok(html.includes('title="gemini-3.8-flash · high · acc-1"'));
-	assert.equal((html.match(/class="agy-tsl-btn"/g) ?? []).length, 3);
-	// Original text starts hidden; the button toggles it.
-	assert.equal(html.includes('agy-tsl-original'), false);
-});
-
-test('translation card: English fallbacks when the host supplies no locale', () => {
-	const html = renderCard({ node: { data: { text: 'translated' } } });
-	assert.ok(html.includes('Gemini translation'));
-	assert.ok(html.includes('Copy'));
-	assert.ok(html.includes('Collapse'));
-	assert.equal(html.includes('Show original'), false, 'no original button without original text');
-});
-
-test('translation card: blank text renders nothing', () => {
-	const html = renderCard({ node: { data: { text: '   ' } } });
-	assert.equal(html, '');
-});
-
-function renderAction(props: Record<string, unknown>): string {
-	return renderToStaticMarkup(createElement(TranslateAction, props));
-}
-
-const ACTION_KEY = 'sess-1\u0000msg-1';
-
-test('translate action: idle state renders a Gemini icon button with tooltip', () => {
-	setActionState(ACTION_KEY, 'idle');
-	const html = renderAction({ messageId: 'msg-1', sessionId: 'sess-1', t: tslT });
-	assert.match(html, /class="agy-tsl-wrap"/);
-	assert.match(html, /class="agy-tsl-icon"/);
-	assert.ok(html.includes('data-state="idle"'));
-	assert.ok(html.includes('aria-label="用 Gemini 把这条回复译成人话"'));
-	assert.equal(html.includes('disabled'), false);
-	assert.match(html, /agy-tsl-mark/);
-});
-
-test('translate action: working state is disabled and shows the spinner glyph', () => {
-	setActionState(ACTION_KEY, 'working');
-	const html = renderAction({ messageId: 'msg-1', sessionId: 'sess-1', t: tslT });
-	assert.ok(html.includes('data-state="working"'));
-	assert.ok(html.includes('disabled=""'));
-	assert.ok(html.includes('aria-label="翻译中…"'));
-	assert.match(html, /agy-tsl-spinner/);
-});
-
-test('translate action: done and error states surface their own labels', () => {
-	setActionState(ACTION_KEY, 'done');
-	const done = renderAction({ messageId: 'msg-1', sessionId: 'sess-1', t: tslT });
-	assert.ok(done.includes('data-state="done"'));
-	assert.ok(done.includes('aria-label="已生成译文"'));
-
-	setActionState(ACTION_KEY, 'error');
-	const error = renderAction({ messageId: 'msg-1', sessionId: 'sess-1', t: tslT });
-	assert.ok(error.includes('data-state="error"'));
-	assert.ok(error.includes('aria-label="重试"'));
-	setActionState(ACTION_KEY, 'idle');
-});
-
-test('translate action: missing ids render nothing (no session yet)', () => {
-	assert.equal(renderAction({ messageId: 'msg-1' }), '');
-	assert.equal(renderAction({ sessionId: 'sess-1' }), '');
 });
 
 // ---------------------------------------------------------------------------
@@ -611,19 +507,6 @@ test('images/media: buildMediaUrl encodes the path and keeps the origin', () => 
 	} finally {
 		if (hadWindow) g.window = prevWindow; else delete g.window;
 	}
-});
-
-// ---------------------------------------------------------------------------
-// Guard: action-state map is observable (used by the strip button)
-// ---------------------------------------------------------------------------
-
-test('translate action state publishes and settles across instances', () => {
-	setActionState(ACTION_KEY, 'working');
-	assert.equal(actionStateOf(ACTION_KEY), 'working');
-	setActionState(ACTION_KEY, 'done');
-	assert.equal(actionStateOf(ACTION_KEY), 'done');
-	setActionState(ACTION_KEY, 'idle');
-	assert.equal(actionStateOf(ACTION_KEY), 'idle');
 });
 
 // ---------------------------------------------------------------------------

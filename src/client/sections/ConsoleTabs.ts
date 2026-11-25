@@ -1,14 +1,11 @@
 // Modular console tabs and card-grouped panels for SettingsSection.
 // Separates high-frequency account/quota controls from model/orchestrator setup,
-// translation/image assistants, and low-frequency runtime/ecosystem settings.
+// assistants, and low-frequency runtime settings.
 import type { AccountPoolData, ManagedAccount } from '../../common/pool-types.ts';
 import type { QuotaFamily } from '../../common/quota-bench.ts';
 import { modelMatches } from '../../common/pool-types.ts';
 import {
 	catalogEfforts,
-	geminiCatalogModels,
-	translateEffortOptions,
-	translateModelOptions,
 	type EffortLabels,
 } from '../config-options.ts';
 import type { Translator } from '../hooks/useTranslation.ts';
@@ -19,20 +16,12 @@ import { Button } from '../ui/Button.ts';
 import { Row, rowCaption } from '../ui/Row.ts';
 import { segGroup } from '../ui/SegGroup.ts';
 import { Select } from '../ui/Select.ts';
-import type { ToastType } from '../ui/Toast.ts';
 import { AccountsPanel, type AccountsPanelHandlers } from './AccountsPanel.ts';
-import { renderBtwRow } from './BtwSettingsRows.ts';
 import { renderPoolWideCatalogRow } from './CatalogRows.ts';
-import { EcosystemPanel } from './EcosystemPanel.ts';
-import { renderImageRow } from './ImageSettingsRows.ts';
 import { ModelsPanel } from './ModelsPanel.ts';
 import { renderOrchestratorRows } from './OrchestratorSettingsRows.ts';
-import {
-	RuntimeControlsSection,
-	renderImageToolRow,
-	renderSyncCustomizationsRow,
-} from './RuntimeControlsRows.ts';
-import { renderHeaderBadgeRow, renderTranslateVisibilityRows } from './VisibilityRows.ts';
+import { RuntimeControlsSection } from './RuntimeControlsRows.ts';
+import { renderHeaderBadgeRow } from './VisibilityRows.ts';
 import { warmupConfigRows } from './WarmupConfigRows.ts';
 import { WarmupStatusBar } from './WarmupStatusBar.ts';
 
@@ -68,8 +57,6 @@ export interface ConsoleTabsProps {
 	setMode: (mode: string) => Promise<void>;
 	setSelectedModels: (ids: ReadonlyArray<string>) => Promise<void>;
 	setHiddenModels: (ids: ReadonlyArray<string>) => Promise<void>;
-	copyImageCommand: () => void;
-	showToast: (text: string, type?: ToastType) => void;
 }
 
 function sectionCard(key: string, title: string, children: unknown[], rightHead?: unknown): unknown {
@@ -236,54 +223,8 @@ function renderModelsTab(p: ConsoleTabsProps): unknown {
 }
 
 function renderFeaturesTab(p: ConsoleTabsProps): unknown {
-	const { t, status, catalogModels, loadingAction, setCfg, effortLabels } = p;
+	const { t, status, loadingAction, setCfg } = p;
 	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-		sectionCard('translation', t('section.translation'), [
-			h(Row, {
-				key: 'auto-tsl',
-				style: { gap: '8px 10px' },
-				left: rowCaption(t('config.autoTranslate'), t('config.autoTranslateDesc')),
-				right: h('div', { style: S.cfgRowRight },
-					segGroup([
-						h(Button, {
-							variant: status.autoTranslate === true ? 'segActive' : 'seg',
-							disabled: loadingAction === 'config:autoTranslate',
-							onClick: () => void setCfg('autoTranslate', true),
-						}, t('config.on')),
-						h(Button, {
-							variant: status.autoTranslate !== true ? 'segActive' : 'seg',
-							disabled: loadingAction === 'config:autoTranslate',
-							onClick: () => void setCfg('autoTranslate', false),
-						}, t('config.off')),
-					]),
-					h(Select, {
-						value: status.translateModel ?? '',
-						ariaLabel: t('config.translateModel'),
-						title: t('config.translateModelDesc'),
-						disabled: loadingAction === 'config:translateModel',
-						onChange: (e: { target?: { value?: string } }) => void setCfg('translateModel', e?.target?.value ?? ''),
-						options: translateModelOptions(status.translateModel ?? '', geminiCatalogModels(catalogModels), t('config.translateModelAuto')),
-					}),
-					h(Select, {
-						value: status.translateEffort ?? '',
-						ariaLabel: t('config.translateEffort'),
-						title: t('config.translateEffortDesc'),
-						style: { minWidth: '78px', maxWidth: '110px' },
-						disabled: loadingAction === 'config:translateEffort',
-						onChange: (e: { target?: { value?: string } }) => void setCfg('translateEffort', e?.target?.value ?? ''),
-						options: translateEffortOptions(status.translateEffort ?? '', effortLabels, status.translateModel ?? '', catalogModels),
-					}),
-				),
-			}),
-			...renderTranslateVisibilityRows({ t, status, loadingAction, setCfg }),
-		]),
-		sectionCard('image-gen', t('section.imageGen'), [
-			renderImageRow(t, status, catalogModels, loadingAction, setCfg, p.copyImageCommand, effortLabels),
-			renderImageToolRow({ t, status, loadingAction, setCfg }),
-		]),
-		sectionCard('btw', t('section.btw'), [
-			renderBtwRow(t, status, catalogModels, loadingAction, setCfg, effortLabels),
-		]),
 		sectionCard('slash-commands', t('section.slashCommands'), [
 			h(Row, {
 				key: 'slash-direct',
@@ -303,19 +244,11 @@ function renderFeaturesTab(p: ConsoleTabsProps): unknown {
 }
 
 function renderRuntimeTab(p: ConsoleTabsProps): unknown {
-	const { t, status, loadingAction, setCfg, showToast } = p;
+	const { t, status, loadingAction, setCfg } = p;
 	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
 		sectionCard('execution', t('section.execution'), [
 			h(RuntimeControlsSection, {
 				t, status, loadingAction, setCfg,
-				exclude: { imageTool: true, syncCustomizations: true },
-			}),
-		]),
-		sectionCard('ecosystem', t('section.ecosystem'), [
-			renderSyncCustomizationsRow({ t, status, loadingAction, setCfg }),
-			h(EcosystemPanel, {
-				t, currentAgent: status.agent ?? '', loadingAction, setCfg, showToast,
-				defaultExpanded: true,
 			}),
 		]),
 	);

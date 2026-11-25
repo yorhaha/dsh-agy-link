@@ -15,9 +15,7 @@
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "dsh-agy-image": "./dist/cli-image.mjs"
-  },
+  "bin": {},
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -105,6 +103,7 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "dev": "tsdown --watch",
     "check": "tsc --noEmit",
     "test": "node --experimental-transform-types --test \"test/**/*.test.ts\"",
     "test:fast": "node scripts/fast-test.mjs",

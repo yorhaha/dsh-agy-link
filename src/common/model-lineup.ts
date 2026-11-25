@@ -10,7 +10,7 @@
 //      `gemini-4-carbon` and the Claude 4.6 line are gone from agy 1.5.7).
 //
 //   2. `PREFERRED_*`: the ids the plugin itself reaches for when the user has
-//      expressed no preference (translation, image generation, warmup,
+//      expressed no preference (image generation, warmup,
 //      per-family account routing, `agy_ask` fallbacks). Each was previously
 //      a string literal repeated across features, which drifted every time a
 //      model was retired.
@@ -59,11 +59,11 @@ export const PREFERRED_GEMINI_ARGON = 'gemini-4-argon'
 /**
  * The image model whose OWN quota bucket `generate_image` consumes.
  *
- * It is NOT the model that drives the image turn (`imageModel` config = a chat
- * model). Google meters image generation against a separate per-model bucket
- * inside the same `google` family — the quota snapshot exposes it as
- * `quotas.google.models[].modelId = gemini-3.1-flash-image`. Scheduling must
- * therefore check that bucket explicitly, and must never cool the family for it.
+ * It is NOT a chat model. Google meters image generation against a separate
+ * per-model bucket inside the same `google` family — the quota snapshot exposes
+ * it as `quotas.google.models[].modelId = gemini-3.1-flash-image`. Scheduling
+ * must therefore check that bucket explicitly, and must never cool the family
+ * for it.
  */
 export const PREFERRED_IMAGE_QUOTA_MODEL = 'gemini-3.1-flash-image'
 

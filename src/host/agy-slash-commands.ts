@@ -147,7 +147,7 @@ async function handleAgoalCommand(deps: CommandDeps, invocation?: CommandInvocat
   return createRes
 }
 
-/** Register the full `a`-prefix Antigravity command catalog (except `/atw`, owned by btw-command). */
+/** Register the full `a`-prefix Antigravity command catalog. */
 export function agySlashCommandDefinitions(opts: AgySlashCommandsOpts): CommandDefinition[] {
   const { deps, armForcedPlan, planMode } = opts
   return [

@@ -218,7 +218,7 @@ agy 1.5.12 起，普通 `Gemini Models` 组的 description 会**枚举成员**�
 
 ## 6. 全路径额度耗尽统一自动切号对齐（主代理 / 子代理 / 辅助路由 / 工具）
 
-所有请求入口（主会话 `AgyAdapter`、内嵌子代理、辅助路由 `isAux`、`runAgyOnce`/`agy_ask`、`ImageService`/`agy_image`、`TranslationService` 与 `runAcpAttempt`）必须遵守同一套「硬配额耗尽即冷却并切向下一个健康账号」契约，同时严格保留 `TOS_VIOLATION` 终态防连坐熔断：
+所有请求入口（主会话 `AgyAdapter`、内嵌子代理、辅助路由 `isAux`、`runAgyOnce`/`agy_ask`、`TranslationService` 与 `runAcpAttempt`）必须遵守同一套「硬配额耗尽即冷却并切向下一个健康账号」契约，同时严格保留 `TOS_VIOLATION` 终态防连坐熔断：
 
 1. **带部分输出（partial response）或 `end_turn` `⚠` 横幅的硬配额失败绝不可吞成成功**：
    - 当 `agy`（CLI `-p` 或 `acp`）在输出过部分文本/工具后返回 `status: ERROR` 且 `error`/`response` 匹配 `isHardQuotaResultError`（如 `RESOURCE_EXHAUSTED (code 429): Individual quota reached`），**或者** `agy` 将硬配额拒绝包装成末尾独立的 `⚠` 警告行（如 `⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h25m47s.` / `⚠ Your AI credits balance is too low...`，判定函数 `isAgyQuotaBannerLine` / `extractAgyQuotaBanner`）并以 `end_turn` / `ok: true` 结束回合时：`EventMapper`（跨分片暂存并剥离 `⚠` 配额横幅，避免向用户泄露或污染重试流）、`RunRecording`、`classifyRun()` 与 `runAcpPrompt()` 必须判定为**不可消费失败**并映射为 `Err.RATE_LIMIT`，冷却当前账号（优先解析精确重置时长）并切号重试，严禁调用 `recordSuccess()`、以 `stop` 结束或在未冷却切号时回落到同账号 CLI `-p`。
@@ -232,7 +232,7 @@ agy 1.5.12 起，普通 `Gemini Models` 组的 description 会**枚举成员**�
    - `providerRetryPolicyFor()` 按 `Math.min(Math.max(1, enabledAccounts - 1), 16)` 放开 `poolHops`，不再硬截断在 2 跳导致多号池提前放弃。
    - `streamWithEffortRetry()` 对不经过 `@deepseek-ai/dsh-llm-retry` 的 `isAux` 辅助路由在未产出任何实质输出前遇到 `Err.RATE_LIMIT` 时，在池内按 `enabledAccounts - 1`（上限 16）自动切号重放（绝不重放 `TOS_VIOLATION`）。
    - **后台辅助调用（`compaction` / `session-title`）模型弹性**：DSH 发起 `compaction` 时可能携带过期 `modelSelection.lastUsed`；`AgyAdapter` 优先读取会话最新 `model/selection`（同 provider）覆盖过期模型；当请求的稀缺模型（如仅少数账号支持的 `gemini-pro-orchestrator-neon`）在全池均无可用账号时，`selectSessionAccount(..., { allowAuxModelFallback: true })` 与 `streamWithEffortRetry()` 自动按同族主力（`PREFERRED_GEMINI_FLASH` → `PREFERRED_GEMINI_HYDROGEN` → `PREFERRED_GEMINI_ARGON` → 跨族主力）挑选有可用账号的模型完成压缩/标题生成，且绝不改写用户会话的模型选择器；常规聊天（`chat`）保持严格校验不静默降级。
-   - `runAgyOnce()`（`agy_ask` / `/agy ask`）、`ImageService`（`agy_image` 含工具级 429 `QUOTA_EXHAUSTED` 检测与独立 `quotaHops` 预算）与 `TranslationService`（按 `poolQuotaHops` 放开 `RATE_LIMIT`/`QUOTA` 重试上限，非配额错误仍受 `translateRetries` 约束）均接入统一冷却与切号循环；全池无可用账号时明确报错，**严禁**回退到 `account = undefined` 悄悄消耗系统主账号。
+   - `runAgyOnce()`（`agy_ask` / `/agy ask`）与 `TranslationService`（按 `poolQuotaHops` 放开 `RATE_LIMIT`/`QUOTA` 重试上限，非配额错误仍受 `translateRetries` 约束）均接入统一冷却与切号循环；全池无可用账号时明确报错，**严禁**回退到 `account = undefined` 悄悄消耗系统主账号。
 4. **单模型粒度主动让路（`isQuotaBenched`）**：
    - 当某族缓存配额的 `models` 列表包含匹配请求模型（`modelMatches`）的条目且**所有匹配条目**的剩馀比例均 `<= LOW_QUOTA_WEEKLY`（0.05）且处于有效重置窗口内时，即使该族宏观均值仍高于 `0.10`，预选阶段也直接判定该账号对该模型进入配额让路（`quotaGateClearedAt` 覆盖规则不变）。
 - **验证锚点**：`test/quota-failover-alignment.test.ts`。
@@ -270,7 +270,7 @@ agy 1.5.x 的 `session/update`（`usage_update`）**只带 `{ used, size }`**—
   - **UI**：族条保持健康（76% 仍是 76%），卡片下补一行 `单模型暂停: gemini-3.1-flash-image → 20:46`。
   - **迁移**：`PoolAdmin.dropModelScopedCooldowns()` 在池初始化时清掉历史遗留的模型级族冷却（reasons 命中模型级签名者）；用户的「清除冷却」同时清空该账号全部模型桶。
 - 只有 `Individual quota reached` / 纯 `RESOURCE_EXHAUSTED` 这类**账号级**拒绝才允许族级冷却。
-- 锚点：`test/model-cooldown.test.ts`（族不被冷却、跨重启持久化、按 image 桶预筛、ImageService 局部轮换且指针不动）、`test/model-scoped-quota.test.ts`、`test/quota-failover-alignment.test.ts` 第 5/8 题。
+- 锚点：`test/model-cooldown.test.ts`（族不被冷却、跨重启持久化、按 image 桶预筛）、`test/model-scoped-quota.test.ts`、`test/quota-failover-alignment.test.ts` 第 5/8 题。
 
 ## CLI `/usage` 超时后的负缓存（同步慢的根因）
 

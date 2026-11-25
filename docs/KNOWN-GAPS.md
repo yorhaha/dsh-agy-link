@@ -36,7 +36,7 @@ Deliberate v1 boundaries and upstream-behavior notes.
     the hand-off logs when it fires so that case is visible instead of silent.
   - `SlotUnavailableError` aborts a run instead of letting it silently spend
     the wrong account when the primary cannot be verified.
-  - Cross-process coordination uses an atomic lockfile (`acquireCrossProcessSlotLock`) alongside the in-process mutex so concurrent local hosts (`dsh web` + `dsh-agy-image` CLI) serialize slot transitions cleanly.
+  - Cross-process coordination uses an atomic lockfile (`acquireCrossProcessSlotLock`) alongside the in-process mutex so concurrent local hosts (`dsh web` and a second `dsh web`) serialize slot transitions cleanly.
 
 ## ACP transport (default)
 
@@ -203,7 +203,7 @@ reference-counted slot is the strongest isolation the plugin can provide.
 - Gemini effort suffixes fold into one base model with selectable efforts
   (`gemini-3-6-flash` + `--effort`); Claude / GPT-OSS slugs stay verbatim
   (agy rejects `--effort` for them).
-- Compaction / session-title / `/atw` auxiliary calls reuse the persistent
+- Compaction / session-title auxiliary calls reuse the persistent
   `agy acp` process pool when `transport === 'acp'` (creating ephemeral ACP
   sessions that are cleaned up with `session/close` on settlement), falling
   back to one-shot `agy -p` when `--settings` or `--json-schema` is required.

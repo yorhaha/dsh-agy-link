@@ -1,7 +1,6 @@
-# UI 可见性开关（会话头徽标 / 单条翻译按钮）
+# UI 可见性开关（会话头徽标）
 
-> issue #105：手机等窄屏下，会话头部工具栏与每条回复的「译成人话」按钮
-> 挤压正常内容。本维度只回答：**哪些 UI 元素可以隐藏、开关怎么从宿主传到
+ > issue #105：手机等窄屏下，会话头部工具栏挤压正常内容。本维度只回答：**哪些 UI 元素可以隐藏、开关怎么从宿主传到
 > 渲染点、缺省语义是什么、窄屏如何降级。**
 
 ## 行为契约
@@ -9,18 +8,10 @@
 | 开关 | 缺省 | 控制的元素 | 关闭后 |
 | --- | --- | --- | --- |
 | `showHeaderBadge` | `true` | `conversation.session.header.actions` 里的 AGY 状态徽标 | 徽标不渲染；控制台弹窗 portal 仍保留 |
-| `showTranslateAction` | `true` | `conversation.chat.assistant-actions` 里的单条「译成人话」按钮 | 按钮不渲染；已生成的译文卡片不受影响 |
-| `translateDisplay` | `card` | 已生成译文的呈现方式 | `replace`：界面上用译文代替被翻译的回复，脚注「查看原文 / 显示译文」可切回 |
-
-`translateDisplay = replace` 只改显示：会话里的原文不动（模型上下文仍是原话）。DSH 把译文节点排在被翻译回复之后（`anchorSeq + 0.1`），
-样式表用 `[data-chat-flow-kind="assistant-step"]:has(+ [data-chat-flow-kind="agy-translation"] .agy-tsl-card[data-display="replace"][data-show-original="false"])`
-隐藏这条回复，不改 DOM；若两者之间被插入别的节点，规则不再匹配，原文与译文同时显示（降级而非丢内容）。「查看原文」切回 DSH 自己渲染的完整回复，而不是记录里截断到 8000 字的副本。
 
 - **opt-out 语义**：只有显式 `false` 才隐藏。状态未到达、旧宿主不含该字段、
   `undefined`/`null` 都保持可见 —— 避免网络抖动时 UI 闪退。规则集中在
-  `src/client/status.ts` 的 `isUiVisible()`，两个渲染点共用，不各自判断。
-- **不改变功能**：隐藏的是入口，不是能力。自动翻译（`autoTranslate`）、
-  `/tsl` 命令、译文卡片、设置面板本身全部照常工作。
+  `src/client/status.ts` 的 `isUiVisible()`。
 
 ## 数据流（单向，无第二份状态）
 
@@ -31,7 +22,7 @@
   → GET /plugins/agy-link/status（每 3s 轮询，字段直出）
   → useAgyStatus() 共享快照（statusCache）
   → isUiVisible(status, key)
-  → SessionStatus / TranslateAction 条件返回 null
+  → SessionStatus 条件返回 null
 ```
 
 - 配置定义：`src/common/types/config.ts`（类型 + 默认值），
@@ -50,8 +41,6 @@
 
 - `test/ui-visibility.test.ts`：`isUiVisible` 的 opt-out 边界、SSR 渲染
   真实 `createSessionStatus` 在开/关/恢复三种状态下的输出。
-- `test/client-dom.test.ts`：jsdom 挂载真实 `TranslateAction`，关闭时无按钮、
-  重新开启后原地恢复。
 - `test/config-precedence.test.ts`：默认值、overrides/entry/env 各层与非法值回退。
 - `test/http-contract.test.ts`：状态字段直出（含显式 `false`）、配置白名单放行。
 - `test/client-plugin-meta.test.ts` + `test/client-i18n.test.ts`：四语言字典

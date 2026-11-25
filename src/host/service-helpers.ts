@@ -1,19 +1,12 @@
 // Cohesive runtime helpers extracted from createHostServices (services.ts):
 // cross-session Semaphore, DSH session/goal/model-selection bridges, attachment
-// fallback reader, and the translation stream driver.
+// fallback reader.
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Err, PROVIDER_ID, type PluginConfig } from '../common/types.ts'
 import type { MediaRefLike } from './media.ts'
-import type { TranslationRunnerRequest, TranslationRunnerResult } from '../features/translation/types.ts'
-import type { TranslationWorkerPool } from '../features/translation/worker.ts'
-import { BtwService, type BtwContextSnapshot, type BtwOneShotRequest, type BtwOneShotResult } from '../features/btw/service.ts'
-import { extractLiveRunProgress, extractRecentHistory, type SessionLike } from './commands/slash-context.ts'
-import { runAgyOnce } from './oneshot.ts'
 import type { AccountPoolManager } from './pool.ts'
-import type { ModelCatalog } from './models.ts'
 import type { CommandDeps } from './commands/shared.ts'
 
 /** Cross-session concurrency limiter (ADR-12). max() <= 0 means unlimited. */
@@ -275,140 +268,6 @@ export async function readSessionImage(ctx: Context, dshHomeDir: string, ref: Me
   }
   return null
 }
-
-export async function runTranslationStream(
-  ctx: Context,
-  getConfig: () => PluginConfig,
-  log: (msg: string) => void,
-  req: TranslationRunnerRequest,
-  workerPool?: TranslationWorkerPool,
-): Promise<TranslationRunnerResult> {
-  if (workerPool !== undefined) {
-    const fast = await workerPool.tryTranslate(req)
-    if (fast !== null) return fast
-  }
-  const startedAt = Date.now()
-  const controller = new AbortController()
-  const timer = setTimeout(
-    () => controller.abort(new Error('translation timed out after ' + req.timeoutMs + 'ms')),
-    Math.max(1_000, req.timeoutMs),
-  )
-  timer.unref?.()
-  const signal = req.signal === undefined ? controller.signal : AbortSignal.any([req.signal, controller.signal])
-  try {
-    const messages = [createUserMessage({ content: [{ type: 'text', text: req.prompt }], source: { kind: 'user' } })]
-    const options = {
-      provider: PROVIDER_ID,
-      model: req.model,
-      ...(req.sessionId === undefined ? {} : { sessionId: req.sessionId }),
-      messages,
-      maxTokens: req.maxTokens,
-      ...(req.effort === undefined || req.effort === '' ? {} : { reasoningEffort: req.effort }),
-      purpose: 'translation',
-      signal,
-      ...(getConfig().translateBindConversation && req.setup !== undefined
-        ? { agyTranslateSession: { setup: req.setup, text: req.text ?? req.prompt } }
-        : {}),
-    } as unknown as GenerateOptions
-    let text = ''
-    let failure: { code?: string; message?: string } | null = null
-    let finishKind: string | undefined
-    const stream = ctx.llm.stream(options) as AsyncIterable<StreamChunk>
-    for await (const chunk of stream) {
-      if (chunk.type === 'text-delta') {
-        text += chunk.text
-      } else if (chunk.type === 'finish') {
-        const reason = chunk.reason
-        finishKind = reason.kind
-        if (reason.kind === 'error' || reason.kind === 'aborted') {
-          const f = (reason as { failure?: { code?: string; message?: string } }).failure
-          failure = {
-            ...(f?.code === undefined ? {} : { code: f.code }),
-            ...(f?.message === undefined ? {} : { message: f.message }),
-          }
-        }
-      }
-    }
-    const durationMs = Date.now() - startedAt
-    if (failure !== null) {
-      return {
-        ok: false,
-        text: text.trim(),
-        durationMs,
-        ...(failure.code === undefined ? {} : { code: failure.code }),
-        ...(failure.message === undefined ? {} : { error: failure.message }),
-      }
-    }
-    const trimmed = text.trim()
-    if (trimmed === '') {
-      const detail = finishKind === undefined ? '' : ' (finish: ' + finishKind + ')'
-      log(
-        'translation produced no text: model=' + req.model
-          + ' effort=' + (req.effort === undefined || req.effort === '' ? '-' : req.effort)
-          + ' durationMs=' + durationMs + detail,
-      )
-      return { ok: false, text: '', durationMs, code: Err.EMPTY_RESPONSE, error: 'the translate model returned no text' + detail }
-    }
-    return { ok: true, text: trimmed, durationMs }
-  } catch (e) {
-    const err = e as { code?: string; message?: string }
-    return { ok: false, text: '', durationMs: Date.now() - startedAt, ...(err.code === undefined ? {} : { code: err.code }), error: err.message ?? String(e) }
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-export function resolveBtwContextSnapshot(opts: {
-  cfg: () => PluginConfig
-  sessions: () => { get(id: unknown): unknown } | undefined
-  activeRun: CommandDeps['activeRun']
-  sessionId: string
-}): BtwContextSnapshot {
-  const session = opts.sessions()?.get(opts.sessionId) as SessionLike | undefined
-  const cwd = typeof session?.header?.cwd === 'string' && session.header.cwd.trim() !== ''
-    ? session.header.cwd.trim()
-    : (opts.cfg().workspaceRoot.trim() || process.cwd())
-  return {
-    workspaceRoot: cwd,
-    historyText: extractRecentHistory(session),
-    liveProgress: extractLiveRunProgress({ cfg: opts.cfg, activeRun: opts.activeRun } as CommandDeps, opts.sessionId),
-  }
-}
-
-export function createBtwServiceForHost(opts: {
-  cfg: () => PluginConfig
-  bin: () => string | null
-  pool: AccountPoolManager
-  catalog: ModelCatalog
-  semaphore: Semaphore
-  log: (msg: string) => void
-  effortUnsupported: () => readonly string[]
-  onEffortUnsupported: (model: string) => void
-  sessions: () => { get(id: unknown): unknown } | undefined
-  activeRun: CommandDeps['activeRun']
-}): BtwService {
-  return new BtwService({
-    cfg: opts.cfg,
-    catalog: () => opts.catalog,
-    resolveContext: (sessionId) => resolveBtwContextSnapshot({
-      cfg: opts.cfg,
-      sessions: opts.sessions,
-      activeRun: opts.activeRun,
-      sessionId,
-    }),
-    runOnce: (req) => runAgyOnce({
-      cfg: opts.cfg,
-      bin: opts.bin,
-      pool: () => opts.pool,
-      acquire: (sig) => opts.semaphore.acquire(sig),
-      log: opts.log,
-      effortUnsupported: opts.effortUnsupported,
-      onEffortUnsupported: opts.onEffortUnsupported,
-    }, req),
-  })
-}
-
-export type { BtwOneShotRequest, BtwOneShotResult }
 
 const FORCED_PLAN_TTL_MS = 5 * 60_000
 
