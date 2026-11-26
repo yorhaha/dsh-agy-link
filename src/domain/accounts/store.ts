@@ -1,11 +1,6 @@
-// Durable persistence for the multi-account pool: load (with JSON validation,
-// legacy-record normalization and last-good recovery) and persist (atomic write
-// plus a cross-process merge of accounts this process has never seen).
-//
-// AccountPoolManager keeps the in-memory `data` cache and its public methods;
-// it delegates every read/write of `pool.json` to this store. The only state
-// that must survive between calls — the set of account ids this process has
-// seen and the last snapshot it wrote — lives here.
+// Durable persistence for the single primary account: load (with JSON
+// validation, legacy pool convergence, and last-good recovery) and persist
+// (atomic write plus cross-process 3-way merge of quota/cooldown updates).
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
@@ -23,27 +18,35 @@ export interface PoolStoreLoadResult {
   recoveredFromLastGood: boolean
 }
 
+function normalizePrimaryRecord(acc: ManagedAccount): ManagedAccount {
+  if (acc.cooldowns === undefined || acc.cooldowns === null) acc.cooldowns = {}
+  if (acc.quotas === undefined || acc.quotas === null) acc.quotas = {}
+  acc.enabled = true
+  acc.systemHome = true
+  acc.dir = ''
+  if (
+    acc.quotaGateClearedAt !== undefined
+    && (typeof acc.quotaGateClearedAt !== 'object' || acc.quotaGateClearedAt === null)
+  ) {
+    acc.quotaGateClearedAt = undefined
+  }
+  for (const [fam, cd] of Object.entries(acc.cooldowns)) {
+    if (cd && cd.reason === 'agy run aborted by caller') {
+      delete acc.cooldowns[fam as ModelFamily]
+    }
+  }
+  return acc
+}
+
 export class PoolStore {
   private readonly baseDir: string
   private readonly file: string
-  /**
-   * Account ids this process has seen (loaded from disk + created here). On
-   * persist, disk ids OUTSIDE this set were added by another host process and
-   * are preserved instead of being clobbered (same merge contract as
-   * sessions.json: web + headless share this file).
-   */
-  private readonly knownIds = new Set<string>()
   /** Serialized snapshot of the last successful persist/load; skips no-op writes. */
   private persistedJson = ''
 
   constructor(baseDir: string) {
     this.baseDir = baseDir
     this.file = join(baseDir, 'pool.json')
-  }
-
-  /** Record an account id this process created (or loaded) so persist won't treat it as foreign. */
-  markKnown(id: string): void {
-    this.knownIds.add(id)
   }
 
   /**
@@ -57,9 +60,6 @@ export class PoolStore {
   load(): PoolStoreLoadResult {
     const primary = this.readPoolFile(this.file)
     if (primary) return { data: primary, recoveredFromLastGood: false }
-    // Torn or corrupt file (concurrent hosts, truncated download, manual edit):
-    // keep a forensic copy, then prefer the last snapshot this process wrote
-    // cleanly instead of presenting the user with an empty pool.
     try {
       if (existsSync(this.file)) copyFileSync(this.file, this.file + '.corrupt-' + Date.now())
     } catch {
@@ -74,46 +74,24 @@ export class PoolStore {
     try {
       if (existsSync(file)) {
         const raw = readFileSync(file, 'utf8')
-        const parsed = JSON.parse(raw) as AccountPoolData
+        const parsed = JSON.parse(raw) as Record<string, unknown>
         if (parsed && Array.isArray(parsed.accounts)) {
-          // Migration: the Gemini Web login feature was removed — drop any
-          // legacy web-session accounts entirely (and purge dangling active
-          // pointers to them) on next persist.
-          parsed.accounts = parsed.accounts.filter((acc) => acc && typeof acc === 'object' && (acc as { type?: string }).type !== 'gemini-web')
-          const liveIds = new Set(parsed.accounts.map((a) => a.id))
-          if (parsed.lastActiveAccountId && !liveIds.has(parsed.lastActiveAccountId)) parsed.lastActiveAccountId = undefined
-          if (parsed.primaryAccountId && !liveIds.has(parsed.primaryAccountId)) parsed.primaryAccountId = undefined
-          if (parsed.activeAccountIds) {
-            for (const [fam, id] of Object.entries(parsed.activeAccountIds)) {
-              if (!id || !liveIds.has(id)) delete parsed.activeAccountIds[fam as ModelFamily]
-            }
-          }
-          for (const acc of parsed.accounts) {
-            // Normalize PARTIAL records: a hand-edited or older pool.json whose
-            // account lacks cooldowns/quotas used to throw a TypeError inside
-            // isAccountEligible -> selectAccount, so EVERY turn failed with an
-            // opaque internal error and no failover at all.
-            if (!acc || typeof acc !== 'object') continue
-            if (acc.cooldowns === undefined || acc.cooldowns === null) acc.cooldowns = {}
-            if (acc.quotas === undefined || acc.quotas === null) acc.quotas = {}
-            if (acc.enabled === undefined) acc.enabled = true
-            // A hand-edited record may have written a non-object here; the
-            // eligibility checks index into it per family.
-            if (
-              acc.quotaGateClearedAt !== undefined
-              && (typeof acc.quotaGateClearedAt !== 'object' || acc.quotaGateClearedAt === null)
-            ) {
-              acc.quotaGateClearedAt = undefined
-            }
-            for (const [fam, cd] of Object.entries(acc.cooldowns)) {
-              if (cd && cd.reason === 'agy run aborted by caller') {
-                delete acc.cooldowns[fam as ModelFamily]
-              }
-            }
-          }
+          const rawAccounts = parsed.accounts.filter(
+            (acc): acc is ManagedAccount => Boolean(acc && typeof acc === 'object' && (acc as { type?: string }).type !== 'gemini-web'),
+          )
+          // Converge legacy multi-account pools to the single primary account only.
+          const primaryAcc =
+            rawAccounts.find((a) => a.id === 'acc_primary')
+            ?? rawAccounts.find((a) => a.systemHome === true)
+          const accounts = primaryAcc ? [normalizePrimaryRecord(primaryAcc)] : []
+          const base = defaultPoolData()
           return {
-            ...defaultPoolData(),
-            ...parsed,
+            version: 1,
+            defaultCooldownMs: typeof parsed.defaultCooldownMs === 'number' ? parsed.defaultCooldownMs : base.defaultCooldownMs,
+            maxCooldownMs: typeof parsed.maxCooldownMs === 'number' ? parsed.maxCooldownMs : base.maxCooldownMs,
+            ...(primaryAcc ? { primaryAccountId: primaryAcc.id } : {}),
+            ...(typeof parsed.systemProxy === 'string' && parsed.systemProxy !== '' ? { systemProxy: parsed.systemProxy } : {}),
+            accounts,
           }
         }
       }
@@ -124,17 +102,11 @@ export class PoolStore {
   }
 
   /**
-   * Write `data` to pool.json, merging in accounts another host process added
-   * since our last look. Returns the data the manager should hold afterwards;
-   * on a write failure it returns the ORIGINAL `data` (unchanged), matching the
-   * old in-class persist.
+   * Write `data` to pool.json, merging newer quota/cooldown updates for the
+   * primary account if another process wrote concurrently.
    */
   persist(data: AccountPoolData): AccountPoolData {
     const serialized = JSON.stringify(data)
-    // Merge with whatever another host process wrote since our last look so
-    // web + headless stop erasing each other's accounts/cooldowns: disk
-    // accounts this process has never seen are appended; everything else
-    // (including deletions of ids we know) stays as this process wrote it.
     let merged: AccountPoolData = data
     try {
       if (existsSync(this.file)) {
@@ -142,23 +114,14 @@ export class PoolStore {
         const base = this.persistedJson
           ? (JSON.parse(this.persistedJson) as AccountPoolData)
           : null
-        const baseMap = new Map((base?.accounts ?? []).map((a) => [a.id, a]))
+        const baseAcc = base?.accounts?.[0]
         if (onDisk && Array.isArray(onDisk.accounts)) {
-          const onDiskMap = new Map(
-            onDisk.accounts
-              .filter((a): a is ManagedAccount => Boolean(a && typeof a === 'object' && a.id !== undefined))
-              .map((a) => [a.id, a]),
-          )
-          // 3-way merge for shared accounts so concurrent CLI/web processes do
-          // not erase each other's fresh quota polls, 429 cooldowns, or
-          // terminal TOS quarantines (while honoring intentional local clears).
-          let accountMerged = false
           const now = Date.now()
           const nextAccounts = data.accounts.map((ourAcc) => {
-            const diskAcc = onDiskMap.get(ourAcc.id)
-            if (!diskAcc || !this.knownIds.has(ourAcc.id)) return ourAcc
-            const baseAcc = baseMap.get(ourAcc.id)
+            const diskAcc = onDisk.accounts.find((a) => a && typeof a === 'object' && a.id === ourAcc.id)
+            if (!diskAcc) return ourAcc
             let nextQuot = ourAcc.quotas
+            let accountMerged = false
             for (const [fam, dq] of Object.entries(diskAcc.quotas ?? {}) as [ModelFamily, ManagedAccount['quotas'][ModelFamily]][]) {
               if (!dq) continue
               const oq = ourAcc.quotas?.[fam]
@@ -181,9 +144,7 @@ export class PoolStore {
             const diskTos = Boolean(diskAcc.authRequired && isTerminalAuthError(diskAcc.authError))
             const baseTos = Boolean(baseAcc?.authRequired && isTerminalAuthError(baseAcc.authError))
             const adoptTos = diskTos && !baseTos && !ourAcc.authRequired
-            if (nextQuot === ourAcc.quotas && nextCd === ourAcc.cooldowns && !adoptTos) return ourAcc
-            accountMerged = true
-            // Mutate in place as well so callers holding `data` see the merged state immediately.
+            if (!accountMerged && !adoptTos) return ourAcc
             ourAcc.quotas = nextQuot
             ourAcc.cooldowns = nextCd
             if (adoptTos) {
@@ -193,12 +154,7 @@ export class PoolStore {
             }
             return ourAcc
           })
-          const ours = new Set(data.accounts.map((a) => a.id))
-          const foreign = onDisk.accounts.filter((a) => a && typeof a === 'object' && a.id !== undefined && !ours.has(a.id) && !this.knownIds.has(a.id))
-          if (foreign.length > 0 || accountMerged) {
-            merged = { ...data, accounts: [...nextAccounts, ...foreign] }
-            for (const acc of foreign) this.knownIds.add(acc.id as string)
-          }
+          merged = { ...data, accounts: nextAccounts }
         }
       }
     } catch {
@@ -210,8 +166,6 @@ export class PoolStore {
       const body = JSON.stringify(merged, null, 2)
       writeJsonAtomic(this.file, body)
       this.persistedJson = JSON.stringify(merged)
-      // Keep a clean snapshot beside the pool so a torn write elsewhere can be
-      // recovered on the next start (#90). Best effort: the primary write won.
       try {
         writeJsonAtomic(this.file + '.last-good', body)
       } catch {
@@ -219,10 +173,7 @@ export class PoolStore {
       }
       return merged
     } catch (e) {
-      // Persistence failure used to be fully silent: cooldowns/quota state
-      // quietly evaporated on restart. Surface it once per failure instead.
       try {
-        // No logger reaches this class; stderr is the honest channel.
         console.error('[dsh-agy-link] pool persist failed: ' + String(e))
       } catch {
         // ignore
@@ -232,29 +183,19 @@ export class PoolStore {
   }
 
   /**
-   * Bootstraps the primary account on first start.
-   *
-   * The primary account rides the REAL system HOME with no directory
-   * isolation: agy 1.1.15+ persists credentials in the macOS Keychain
-   * ("Antigravity Safe Storage"), not in a ~/.gemini token file, so copying
-   * files cannot migrate sign-in state. Injecting HOME would log the
-   * primary account out of agy entirely (observed: "Please sign in").
-   * Only SECONDARY pool accounts get isolated HOME directories, created
-   * and signed in via /agy add-account.
-   *
-   * `getSysProxy` is called only when a primary actually has to be created
-   * (the caller owns the host dependency), so the system-proxy probe keeps its
-   * old lazy timing.
+   * Bootstraps the single primary account on first start (system HOME sign-in).
    */
   bootstrapDefaultAccount(data: AccountPoolData, getSysProxy?: () => string | undefined): AccountPoolData {
-    // The primary slot represents whatever account is currently logged into
-    // the REAL system HOME (`agy login` / `agy logout` outside DSH). It must
-    // ALWAYS exist: it used to be created only for an empty pool, so deleting
-    // it while other accounts remained made the system-HOME login invisible
-    // forever — the UI fell back to an isolated account and looked "stale"
-    // after every external re-login. Users who don't want it can disable it.
-    const hasSystemHome = data.accounts.some((a) => a.systemHome)
-    if (hasSystemHome) return data
+    const existing = data.accounts.find((a) => a.systemHome || a.id === 'acc_primary')
+    if (existing) {
+      const normalized = normalizePrimaryRecord(existing)
+      if (data.accounts.length !== 1 || data.primaryAccountId !== normalized.id) {
+        data.accounts = [normalized]
+        data.primaryAccountId = normalized.id
+        return this.persist(data)
+      }
+      return data
+    }
 
     const sysProxy = getSysProxy?.()
     const primary: ManagedAccount = {
@@ -270,22 +211,18 @@ export class PoolStore {
       quotas: {},
     }
 
-    data.accounts.unshift(primary)
+    data.accounts = [primary]
     data.primaryAccountId = primary.id
     return this.persist(data)
   }
 
   /**
-   * Migrates pool files created before Keychain-aware primaries: an
-   * acc_primary that carries an isolated dir (and likely a broken token
-   * copy) is converted back to the system HOME so agy stays signed in.
-   * The stale directory is left untouched (never deletes user data).
+   * Migrates legacy primary records to system HOME and heals primary email on Windows.
    */
   normalizeLegacyPrimary(data: AccountPoolData): AccountPoolData {
     const primary = data.accounts.find((a) => a.id === 'acc_primary' || a.systemHome)
     if (!primary) return data
     let changed = false
-    // Locale changes must not rewrite existing account data.
     if (!primary.systemHome || primary.dir) {
       primary.dir = ''
       primary.systemHome = true
@@ -294,7 +231,6 @@ export class PoolStore {
       data.primaryAccountId = primary.id
       changed = true
     }
-    // On Windows, self-heal primary email from durable .primary-credential.json if present
     if (process.platform === 'win32') {
       try {
         const credFile = join(this.baseDir, '.primary-credential.json')

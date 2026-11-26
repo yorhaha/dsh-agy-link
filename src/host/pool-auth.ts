@@ -1,18 +1,12 @@
-// PoolAuthFlow: self-owned Google OAuth lifecycle for adding pool accounts.
+// PoolAuthFlow: self-owned Google OAuth lifecycle for the single primary account.
 //
-// Replaces the old "spawn agy -p ping and scrape a login URL" probe, which
-// silently broke when agy >= 1.1.15 stopped printing auth URLs in print
-// mode (the probe then timed out and the route reported success anyway —
-// the UI claimed "browser opened" while nothing ever happened).
-//
-// Flow: create staging slot -> PKCE authorize URL -> loopback callback
-// listener + server-side browser open -> automatic code capture ->
-// exchange -> write agy-format token file into the staging HOME -> verify
-// via fetchAvailableModels/userinfo -> commit into the pool. Manual code
-// (or redirect URL) paste is the fallback when the listener cannot bind.
+// Flow: PKCE authorize URL -> loopback callback listener + server-side browser
+// open -> automatic code capture -> exchange -> write agy-format token file
+// into system HOME / credential store -> verify via userinfo -> update primary
+// account in place. Manual code (or redirect URL) paste is the fallback.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import {
   buildAgyCredentialDoc,
   buildAuthorizeUrl,
@@ -42,10 +36,7 @@ export type PoolAuthStatusCode =
   | 'invalid_code'
   | 'invalid_state'
   | 'exchange_failed'
-  | 'identity_mismatch'
-  | 'identity_unverified'
   | 'primary_activated'
-  | 'account_activated'
   | 'missing_code'
   | 'request_failed'
 
@@ -71,9 +62,6 @@ interface ActiveFlow {
   url: string
   mode: 'auto' | 'manual'
   listener: CallbackHandle | null
-  /** Primary/system-HOME login: no staging slot, writes to the real HOME. */
-  primary?: boolean
-  accountId?: string
 }
 
 const DONE_STATUS_TTL_MS = 30_000
@@ -85,20 +73,9 @@ export interface PoolAuthFlowDeps {
   fetchUserEmail?: typeof fetchUserEmail
   refreshTokens?: typeof refreshTokens
   onUpdate?: () => void
-  onIsolatedAccountCommitted?: (account: ManagedAccount) => void
-  /**
-   * Injectable Windows credential-slot writer. Defaults to the real slot, but
-   * tests MUST override it: the machine-wide slot is shared with the running
-   * app, so a fake login written from a unit test would silently break the
-   * real account (and every ACP turn with it).
-   */
+  /** Injectable Windows credential-slot writer (tests must override). */
   writeSlot?: (raw: string) => boolean
-  /**
-   * Injectable macOS/Linux Keychain writer, the counterpart of `writeSlot`.
-   * Same hazard: the login Keychain entry is machine-wide, so a test that let
-   * a fake primary login reach it would leave the real user signed out of agy.
-   * Tests MUST override it.
-   */
+  /** Injectable macOS/Linux Keychain writer (tests must override). */
   writeKeyring?: (raw: string, homeDir: string) => boolean
 }
 
@@ -111,7 +88,6 @@ export class PoolAuthFlow {
   private readonly userEmail: typeof fetchUserEmail
   private readonly refresh: typeof refreshTokens
   private readonly onUpdate?: () => void
-  private readonly onIsolatedAccountCommitted?: (account: ManagedAccount) => void
   private readonly writeSlot: (raw: string) => boolean
   private readonly writeKeyring: (raw: string, homeDir: string) => boolean
 
@@ -126,7 +102,6 @@ export class PoolAuthFlow {
     this.userEmail = deps.fetchUserEmail ?? fetchUserEmail
     this.refresh = deps.refreshTokens ?? refreshTokens
     this.onUpdate = deps.onUpdate
-    this.onIsolatedAccountCommitted = deps.onIsolatedAccountCommitted
     this.writeSlot = deps.writeSlot ?? ((raw) => writeWindowsCredentialRaw(raw, 'gemini:antigravity'))
     this.writeKeyring = deps.writeKeyring ?? ((raw, homeDir) => writeSystemKeyringRaw(raw, homeDir))
   }
@@ -142,7 +117,6 @@ export class PoolAuthFlow {
     }
     this.statusValue = { ...this.statusValue, ...patch }
     if (patch.phase === 'done') {
-      // Hold the success state briefly so pollers see it, then reset.
       this.doneResetTimer = setTimeout(() => {
         if (this.statusValue.phase === 'done') this.statusValue = { phase: 'idle' }
       }, DONE_STATUS_TTL_MS)
@@ -150,11 +124,6 @@ export class PoolAuthFlow {
     }
   }
 
-  /**
-   * Shared starter: PKCE + loopback listener + server-side browser open.
-   * Never reports success without a URL; bind failure degrades to manual
-   * paste mode instead of pretending the browser opened.
-   */
   private async startFlow(flow: Omit<ActiveFlow, 'verifier' | 'state' | 'url' | 'mode' | 'listener'>): Promise<PoolAuthStatus & { ok: boolean; dir?: string }> {
     await this.abortActive()
 
@@ -162,8 +131,6 @@ export class PoolAuthFlow {
     const state = randomBytes(16).toString('base64url')
     const url = buildAuthorizeUrl(challenge, state)
 
-    // startCallbackListener signals bind errors by rejecting `result`;
-    // give the listener one tick to bind before declaring auto mode.
     let listener: CallbackHandle | null = startCallbackListener()
     let bindFailed = false
     await Promise.race([
@@ -194,7 +161,7 @@ export class PoolAuthFlow {
       browserOpened,
       code: browserOpened ? undefined : 'browser_manual',
     })
-    this.log(`pool auth begun (${mode} mode, browserOpened=${browserOpened}${active.primary ? ', primary' : ''})`)
+    this.log(`primary auth begun (${mode} mode, browserOpened=${browserOpened})`)
 
     if (listener) {
       void listener.result
@@ -208,39 +175,23 @@ export class PoolAuthFlow {
     return { ok: true, ...this.statusValue, dir: active.dir }
   }
 
-  /** Begin adding a pool account (isolated staging HOME). */
-  async begin(alias?: string, proxyUrl?: string): Promise<PoolAuthStatus & { ok: boolean; dir?: string }> {
-    const staging = this.pool.createStagingSlot()
-    return this.startFlow({ stagingId: staging.id, dir: staging.dir, alias, proxyUrl: proxyUrl || detectSystemProxy() })
-  }
-
   /**
    * Begin logging in the PRIMARY account (system HOME, no staging slot):
-   * same browser flow, tokens land in ~/.gemini so the real agy stays signed in.
+   * tokens land in ~/.gemini / credential store so agy stays signed in.
    */
-  async beginPrimary(proxyUrl?: string): Promise<PoolAuthStatus & { ok: boolean; dir?: string }> {
-    const { homedir } = await import('node:os')
-    return this.startFlow({ stagingId: 'acc_primary', dir: homedir(), primary: true, proxyUrl: proxyUrl || detectSystemProxy() })
-  }
-
-  /** Reauthenticate an existing isolated account without replacing its pool entry. */
-  async beginAccount(accountId: string, proxyUrl?: string): Promise<PoolAuthStatus & { ok: boolean; dir?: string }> {
-    const account = this.pool.getAccount(accountId)
-    if (!account || !account.dir || account.systemHome) {
-      return { ok: false, phase: 'failed', code: 'request_failed' }
-    }
-    const staging = this.pool.createStagingSlot()
+  async beginPrimary(proxyUrl?: string, alias?: string): Promise<PoolAuthStatus & { ok: boolean; dir?: string }> {
+    const primary = this.pool.getPrimaryAccount()
     return this.startFlow({
-      stagingId: staging.id, dir: staging.dir, accountId, alias: account.alias,
-      proxyUrl: account.proxyUrl || proxyUrl || detectSystemProxy(),
+      stagingId: primary.id,
+      dir: homedir(),
+      alias: alias?.trim() || primary.alias,
+      proxyUrl: proxyUrl || primary.proxyUrl || detectSystemProxy(),
     })
   }
 
   /**
-   * Import an account using an existing refresh_token or OAuth token JSON document.
-   * If an account with matching email exists, its credential file is updated in place
-   * and any authRequired flag / cooldowns are cleared.
-   * If it is a new account, a staging slot is committed to pool.json.
+   * Import an existing refresh_token or OAuth token JSON document into the
+   * primary account.
    */
   async importRefreshToken(
     tokenInput: string,
@@ -249,7 +200,6 @@ export class PoolAuthFlow {
   ): Promise<{
     ok: boolean
     account?: ManagedAccount
-    isNew?: boolean
     email?: string
     error?: string
     code?: PoolAuthStatusCode
@@ -267,66 +217,45 @@ export class PoolAuthFlow {
         return { ok: false, error: 'Failed to exchange refresh token', code: 'exchange_failed' }
       }
       const email = await this.userEmail(tokens.access_token, proxyUrl)
-      const normalizedEmail = email?.toLowerCase()
+      const primary = this.pool.getPrimaryAccount()
 
-      const existing = normalizedEmail
-        ? this.pool.getAccounts().find((a) => a.email?.toLowerCase() === normalizedEmail)
-        : undefined
-
-      if (existing) {
-        if (existing.dir && !existing.systemHome) {
-          const stagedFile = writeAgyTokenFile(existing.dir, tokens)
-          saveCredentialBackup(stagedFile)
-        } else if (process.platform === 'win32') {
-          try {
-            // Same document the on-disk writer produces — crucially WITH an
-            // `expiry`, so a missing field cannot be read as "valid forever".
-            const docStr = buildAgyCredentialDoc(tokens)
-            this.writeSlot(docStr)
-            writePrimaryCredential({ raw: docStr, email, savedAt: Date.now() }, this.pool.dir)
-          } catch {
-            // best effort
-          }
-        } else if (process.env.NODE_TEST_CONTEXT === undefined) {
-          try {
-            const { homedir } = await import('node:os')
-            const primaryFile = writeAgyTokenFile(homedir(), tokens)
-            saveCredentialBackup(primaryFile)
-            this.writeKeyring(readFileSync(primaryFile, 'utf8'), homedir())
-          } catch {
-            // best effort
-          }
+      if (process.platform === 'win32') {
+        try {
+          const docStr = buildAgyCredentialDoc(tokens)
+          this.writeSlot(docStr)
+          writePrimaryCredential({ raw: docStr, email, savedAt: Date.now() }, this.pool.dir)
+        } catch {
+          // best effort
         }
-        if (alias?.trim()) {
-          this.pool.setAccountAlias(existing.id, alias.trim())
+      } else if (process.env.NODE_TEST_CONTEXT === undefined) {
+        try {
+          const home = homedir()
+          const primaryFile = writeAgyTokenFile(home, tokens)
+          saveCredentialBackup(primaryFile)
+          this.writeKeyring(readFileSync(primaryFile, 'utf8'), home)
+        } catch {
+          // best effort
         }
-        if (proxyUrl?.trim()) {
-          this.pool.setAccountProxy(existing.id, proxyUrl.trim())
-        }
-        // A completed import is an explicit user action: it may lift even a
-        // terminal TOS quarantine (the user may have won an appeal).
-        this.pool.clearAuthRequired(existing.id, true)
-        this.pool.clearCooldown(existing.id, undefined, true)
-        this.pool.updateAccountQuotas(existing.id, existing.quotas ?? {}, email)
-        void this.quota.refreshAccountQuota(existing).catch(() => undefined)
-        this.log(`imported refresh token for existing account ${existing.id}${email ? ` <${email}>` : ''}`)
-        this.setStatus({ phase: 'done', alias: existing.alias || email, code: 'account_activated' })
-        this.onUpdate?.()
-        return { ok: true, account: existing, isNew: false, email }
       }
 
-      // New account: create staging slot -> write token -> commit
-      const staging = this.pool.createStagingSlot()
-      writeAgyTokenFile(staging.dir, tokens)
-      const targetAcc = this.pool.commitStagingAccount(staging.id, staging.dir, alias, email, proxyUrl)
-      const accountFile = join(targetAcc.dir, '.gemini', 'antigravity-cli', 'antigravity-oauth-token')
-      saveCredentialBackup(accountFile)
-      this.onIsolatedAccountCommitted?.(targetAcc)
-      void this.quota.refreshAccountQuota(targetAcc).catch(() => undefined)
-      this.log(`imported refresh token as new account ${targetAcc.id}${email ? ` <${email}>` : ''}`)
-      this.setStatus({ phase: 'done', alias: targetAcc.alias || email, code: 'account_activated' })
+      const emailChanged = Boolean(email && primary.email && primary.email.toLowerCase() !== email.toLowerCase())
+      if (emailChanged && email) {
+        this.pool.resetAccountIdentity(primary.id, email, true)
+      }
+      if (alias?.trim()) {
+        this.pool.setAccountAlias(primary.id, alias.trim())
+      }
+      if (proxyUrl?.trim()) {
+        this.pool.setAccountProxy(primary.id, proxyUrl.trim())
+      }
+      this.pool.clearAuthRequired(primary.id, true)
+      this.pool.clearCooldown(primary.id, undefined, true)
+      this.pool.updateAccountQuotas(primary.id, emailChanged ? {} : primary.quotas, email)
+      void this.quota.refreshAccountQuota(primary, true).catch(() => undefined)
+      this.log(`imported refresh token for primary account${email ? ` <${email}>` : ''}`)
+      this.setStatus({ phase: 'done', alias: primary.alias || email, code: 'primary_activated' })
       this.onUpdate?.()
-      return { ok: true, account: targetAcc, isNew: true, email }
+      return { ok: true, account: primary, email }
     } catch (err) {
       this.fail('exchange_failed', err)
       return {
@@ -355,16 +284,6 @@ export class PoolAuthFlow {
     return { ...after, ok: after.phase === 'done' }
   }
 
-  /**
-   * Settle the ACTIVE flow with an authorization code.
-   *
-   * `owner` names the flow the code belongs to. Without it, a STALE flow's
-   * late callback (its `exchangeCode` still in flight while the user cancelled
-   * and began flow B) settled against `this.flow` — flow B — and either killed
-   * the new flow with `invalid_state` (deleting B's staging dir) or, worse,
-   * wrote flow A's token file into the freshly cleaned A dir and committed a
-   * ghost account. The identity check makes a stale settlement a no-op.
-   */
   private async finishWithCode(code: string, returnedState: string, owner?: ActiveFlow): Promise<void> {
     const flow = this.flow
     if (!flow || this.statusValue.phase !== 'waiting') return
@@ -377,111 +296,52 @@ export class PoolAuthFlow {
     try {
       const tokens = await this.exchange(code, flow.verifier, flow.proxyUrl)
       if (this.flow !== flow) return
-      if (flow.accountId) {
-        const email = await this.userEmail(tokens.access_token, flow.proxyUrl)
-        if (this.flow !== flow) return
-        const account = this.pool.getAccount(flow.accountId)
-        if (!account || !account.dir || account.systemHome || !email || !tokens.refresh_token) {
-          this.fail('identity_unverified')
-          return
-        }
-        const normalized = email.toLowerCase()
-        if ((account.email && account.email.toLowerCase() !== normalized) ||
-            this.pool.getAccounts().some((other) => other.id !== account.id && other.email?.toLowerCase() === normalized)) {
-          this.fail('identity_mismatch')
-          return
-        }
-        const stagedFile = writeAgyTokenFile(flow.dir, tokens)
-        const targetDir = join(account.dir, '.gemini', 'antigravity-cli')
-        mkdirSync(targetDir, { recursive: true })
-        const targetFile = join(targetDir, 'antigravity-oauth-token')
-        renameSync(stagedFile, targetFile)
-        saveCredentialBackup(targetFile)
-        this.pool.updateAccountQuotas(account.id, {}, email)
-        // A completed OAuth login is an explicit user action (unlike an
-        // automatic quota refresh), so it may lift a terminal quarantine.
-        this.pool.clearAuthRequired(account.id, true)
-        this.pool.clearCooldown(account.id, undefined, true)
-        this.pool.cleanupStagingSlot(flow.dir)
-        void this.quota.refreshAccountQuota(account, true).catch(() => undefined)
-        this.flow = null
-        if (flow.listener) void flow.listener.close().catch(() => undefined)
-        this.setStatus({ phase: 'done', alias: account.alias, code: 'account_activated' })
-        this.onUpdate?.()
-        return
-      }
+
       const tokenFile = writeAgyTokenFile(flow.dir, tokens)
-      if (flow.primary) {
-        saveCredentialBackup(tokenFile)
-      }
-      if (flow.primary && process.platform === 'win32') {
+      saveCredentialBackup(tokenFile)
+      if (process.platform === 'win32') {
         try {
           const raw = readFileSync(tokenFile, 'utf8')
           this.writeSlot(raw)
         } catch {
-          // best-effort
+          // best effort
         }
-      } else if (flow.primary) {
+      } else {
         try {
           this.writeKeyring(readFileSync(tokenFile, 'utf8'), flow.dir)
         } catch {
-          // best-effort
+          // best effort
         }
       }
       const email = await this.userEmail(tokens.access_token, flow.proxyUrl)
-      if (flow.primary && process.platform === 'win32') {
+      if (process.platform === 'win32') {
         try {
-          // Record the freshly verified primary credential so every later slot
-          // handoff restores THIS login instead of "whatever the slot held".
           const raw = readFileSync(tokenFile, 'utf8')
           writePrimaryCredential({ raw, email, savedAt: Date.now() }, this.pool.dir)
         } catch {
-          // best-effort
+          // best effort
         }
       }
-      if (flow.primary) {
-        // System-HOME login: update the primary account in place, never
-        // stage/commit and NEVER delete the real home directory.
-        const primary =
-          this.pool.getAccount('acc_primary') ??
-          this.pool.getAccounts().find((a) => a.systemHome) ??
-          this.pool.getAccounts()[0]
-        if (primary) {
-          if (flow.proxyUrl && !primary.proxyUrl) {
-            this.pool.setAccountProxy(primary.id, flow.proxyUrl)
-          }
-          // Issue #152 part 2: when the primary slot is re-authenticated as a
-          // DIFFERENT Google account, reset identity-bound state and restore
-          // the default primary label so the previous account's custom alias
-          // never lingers next to the new email address.
-          const emailChanged = Boolean(
-            email && primary.email && primary.email.toLowerCase() !== email.toLowerCase(),
-          )
-          if (emailChanged && email) {
-            this.pool.resetAccountIdentity(primary.id, email, true)
-          }
-          this.pool.clearAuthRequired(primary.id, true)
-          this.pool.clearCooldown(primary.id, undefined, true)
-          this.pool.updateAccountQuotas(primary.id, emailChanged ? {} : primary.quotas, email)
-          void this.quota.refreshAccountQuota(primary, true).catch(() => undefined)
-        }
-        this.log(`primary account signed in${email ? ` <${email}>` : ''}`)
-        this.flow = null
-        if (flow.listener) void flow.listener.close().catch(() => undefined)
-        this.setStatus({ phase: 'done', alias: email, code: 'primary_activated' })
-        this.onUpdate?.()
-        return
+
+      const primary = this.pool.getPrimaryAccount()
+      if (flow.proxyUrl && !primary.proxyUrl) {
+        this.pool.setAccountProxy(primary.id, flow.proxyUrl)
       }
-      const acc = this.pool.commitStagingAccount(flow.stagingId, flow.dir, flow.alias, email, flow.proxyUrl)
-      const accountFile = join(acc.dir, '.gemini', 'antigravity-cli', 'antigravity-oauth-token')
-      saveCredentialBackup(accountFile)
-      this.onIsolatedAccountCommitted?.(acc)
-      this.log(`pool auth committed account ${acc.id}${email ? ` <${email}>` : ''}`)
-      // Quota refresh is best-effort; the account is usable regardless.
-      void this.quota.refreshAccountQuota(acc, true).catch(() => undefined)
+      const emailChanged = Boolean(
+        email && primary.email && primary.email.toLowerCase() !== email.toLowerCase(),
+      )
+      if (emailChanged && email) {
+        this.pool.resetAccountIdentity(primary.id, email, true)
+      }
+      this.pool.clearAuthRequired(primary.id, true)
+      this.pool.clearCooldown(primary.id, undefined, true)
+      this.pool.updateAccountQuotas(primary.id, emailChanged ? {} : primary.quotas, email)
+      void this.quota.refreshAccountQuota(primary, true).catch(() => undefined)
+
+      this.log(`primary account signed in${email ? ` <${email}>` : ''}`)
       this.flow = null
       if (flow.listener) void flow.listener.close().catch(() => undefined)
-      this.setStatus({ phase: 'done', alias: acc.alias, code: 'account_activated' })
+      this.setStatus({ phase: 'done', alias: email, code: 'primary_activated' })
       this.onUpdate?.()
     } catch (err) {
       if (this.flow === flow) this.fail('exchange_failed', err)
@@ -490,13 +350,9 @@ export class PoolAuthFlow {
 
   private fail(code: PoolAuthStatusCode, detail?: unknown): void {
     const flow = this.flow
-    // The existing host diagnostic sink may retain raw failure detail; never
-    // return it through the customer-facing HTTP/status contract.
-    this.log(`pool auth failed [${code}]${detail ? `: ${detail instanceof Error ? detail.message : String(detail)}` : ''}`)
+    this.log(`primary auth failed [${code}]${detail ? `: ${detail instanceof Error ? detail.message : String(detail)}` : ''}`)
     if (flow) {
       if (flow.listener) void flow.listener.close().catch(() => undefined)
-      // Never delete the real HOME of a primary login attempt.
-      if (!flow.primary) this.pool.cleanupStagingSlot(flow.dir)
       this.flow = null
     }
     this.setStatus({ phase: 'failed', code })
@@ -513,6 +369,5 @@ export class PoolAuthFlow {
     if (!flow) return
     this.flow = null
     if (flow.listener) await flow.listener.close().catch(() => undefined)
-    if (!flow.primary) this.pool.cleanupStagingSlot(flow.dir)
   }
 }

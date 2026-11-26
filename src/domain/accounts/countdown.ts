@@ -66,7 +66,7 @@ export function earliestAvailableCountdown(
  * lived persistent session cannot accumulate logs forever.
  */
 export function sweepOldAgyLogs(
-  accounts: readonly ManagedAccount[],
+  _accounts: readonly ManagedAccount[],
   systemHome: string,
   maxDays = 7,
   now = Date.now(),
@@ -74,13 +74,7 @@ export function sweepOldAgyLogs(
 ): number {
   const maxAgeMs = Math.max(1, maxDays) * 86_400_000
   let removed = 0
-  const targetLogDirs = [join(systemHome, '.gemini', 'antigravity-cli', 'log')]
-  for (const acc of accounts) {
-    if (acc.dir) {
-      targetLogDirs.push(join(acc.dir, '.gemini', 'antigravity-cli', 'log'))
-    }
-  }
-  for (const extra of extraLogDirs) targetLogDirs.push(extra)
+  const targetLogDirs = [join(systemHome, '.gemini', 'antigravity-cli', 'log'), ...extraLogDirs]
   for (const logDir of targetLogDirs) {
     if (!existsSync(logDir)) continue
     try {

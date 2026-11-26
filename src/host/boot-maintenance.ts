@@ -126,9 +126,6 @@ export function presenceDirOf(accountDir: string): string {
 }
 
 export interface MaintenanceDeps {
-  /** Read lazily: accounts are added and removed while DSH runs. */
-  accounts: () => readonly ManagedAccount[]
-  sweepStaging: () => number
   sweepLogs: () => number
   log: (msg: string) => void
   /** Opt-out for operators who do not want the plugin touching any process. */
@@ -139,27 +136,6 @@ export interface MaintenanceDeps {
 /** One maintenance pass; each step is isolated so a failure cannot skip the rest. */
 export function runMaintenancePass(deps: MaintenanceDeps): { presence: number; staging: number; logs: number; reaped: number[] } {
   const now = (deps.now ?? Date.now)()
-  let presence = 0
-  let accounts: readonly ManagedAccount[] = []
-  try {
-    accounts = deps.accounts()
-  } catch {
-    accounts = []
-  }
-  for (const acc of accounts) {
-    if (!acc.dir || acc.systemHome === true) continue
-    try {
-      presence += sweepStalePresenceLocks(acc.dir, now)
-    } catch {
-      // ignore
-    }
-  }
-  let staging = 0
-  try {
-    staging = deps.sweepStaging()
-  } catch {
-    // ignore
-  }
   let logs = 0
   try {
     logs = deps.sweepLogs()
@@ -175,12 +151,10 @@ export function runMaintenancePass(deps: MaintenanceDeps): { presence: number; s
     }
   }
   const parts: string[] = []
-  if (presence > 0) parts.push(presence + ' stale presence lock(s)')
-  if (staging > 0) parts.push(staging + ' staging dir(s)')
   if (logs > 0) parts.push(logs + ' old log(s)')
   if (reaped.length > 0) parts.push(reaped.length + ' orphaned MCP process(es)')
   if (parts.length > 0) deps.log('[agy-link] maintenance: swept ' + parts.join(', '))
-  return { presence, staging, logs, reaped }
+  return { presence: 0, staging: 0, logs, reaped }
 }
 
 /**
@@ -224,32 +198,10 @@ export function scheduleBootMaintenance(
  */
 export function describeStartupCost(
   registryFile: string,
-  accounts: readonly ManagedAccount[],
-  now = Date.now(),
+  _accounts: readonly ManagedAccount[],
+  _now = Date.now(),
 ): string[] {
   const lines: string[] = []
-  const isolated = accounts.filter((a) => a.dir !== undefined && a.dir !== '' && a.systemHome !== true)
-  lines.push('- startup cost: ' + accounts.length + ' pool account(s), ' + isolated.length + ' with an isolated home')
-  let staleLocks = 0
-  for (const acc of isolated) {
-    if (!acc.dir) continue
-    try {
-      const dir = presenceDirOf(acc.dir)
-      for (const name of readdirSync(dir)) {
-        if (!name.endsWith('.lock')) continue
-        try {
-          if (now - statSync(join(dir, name)).mtimeMs >= PRESENCE_LOCK_MAX_AGE_MS) staleLocks++
-        } catch {
-          // ignore
-        }
-      }
-    } catch {
-      // no presence dir for this account
-    }
-  }
-  if (staleLocks > 0) {
-    lines.push('  - ' + staleLocks + ' stale presence lock(s) — swept automatically by the deferred maintenance pass')
-  }
   let servers: Array<[string, unknown]> = []
   try {
     const raw = readFileSync(registryFile, 'utf8')

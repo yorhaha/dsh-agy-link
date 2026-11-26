@@ -526,30 +526,9 @@ export function getAccountHealth(account: ManagedAccount, family: ModelFamily = 
 
 export interface AccountPoolData {
   version: 1
-  mode: 'sequential' | 'round-robin'
   defaultCooldownMs: number
   maxCooldownMs: number
   primaryAccountId?: string
-  /** Currently active account id per model family for sticky sequential drain */
-  activeAccountIds?: Partial<Record<ModelFamily, string>>
-  /**
-   * Account of the most recent agy spawn that belonged to the `google` family.
-   *
-   * NOT the account a session is using: selection is per family, so the
-   * console reads `activeAccountIds[family]` (a real per-family pin) and the
-   * conversation header reads `/session-view` (family of the selected model).
-   * Kept for the `google` readouts that predate family scoping and for
-   * last-resort fallbacks.
-   */
-  lastActiveAccountId?: string
-  /** Timestamp of the most recent explicit user account switch/pin (overrides older session stickiness) */
-  manualPinAt?: number
-  /** Per-family explicit pin timestamps so pinning one family never disrupts other families' session stickiness. */
-  manualPinAtByFamily?: Partial<Record<ModelFamily, number>>
-  /** Side-effect-free resolved active account ID per family, computed for UI readouts. */
-  resolvedActiveAccountIds?: Partial<Record<ModelFamily, string>>
-  /** Authoritative currently active account ID computed by the pool scheduler */
-  activeAccountId?: string
   /** Detected system-wide or plugin-configured default proxy URL */
   systemProxy?: string
   accounts: ManagedAccount[]
@@ -558,7 +537,6 @@ export interface AccountPoolData {
 export function defaultPoolData(): AccountPoolData {
   return {
     version: 1,
-    mode: 'sequential',
     defaultCooldownMs: 15 * 60 * 1000, // 15 minutes (hardened from 10m)
     maxCooldownMs: 60 * 60 * 1000,    // 60 minutes
     accounts: [],
