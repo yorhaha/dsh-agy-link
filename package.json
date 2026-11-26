@@ -111,8 +111,9 @@
     "prepack": "npm run build",
     "lint:arch": "node scripts/check-architecture.mjs",
     "lint:budget": "node scripts/check-budgets.mjs",
+    "lint:coupling": "node scripts/check-coupling.mjs",
     "test:coverage": "node --experimental-transform-types --test --test-concurrency=1 --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=80 --test-coverage-functions=80 \"test/**/*.test.ts\"",
-    "verify": "npm run check && npm run lint:arch && npm run lint:budget && npm run build && npm test"
+    "verify": "npm run check && npm run lint:arch && npm run lint:budget && npm run lint:coupling && npm run build && npm test"
   },
   "engines": {
     "node": ">=24.0.0"

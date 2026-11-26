@@ -65,6 +65,7 @@ owns fetch. No inline button styling outside `ui/`.
 npm run check        # tsc --noEmit
 npm run lint:arch    # dependency direction + cycles
 npm run lint:budget  # file/function size ratchet
+npm run lint:coupling # service-level coupling ratchet
 npm run build        # tsdown (host, client, bridge)
 npm test             # full suite
 npm run test:coverage# Node built-in coverage with thresholds

@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "description": "Service-level coupling ratchet. Regenerate only after an intentional decoupling: node scripts/check-coupling.mjs --update",
+  "symbols": [
+    "clearAuthRequired",
+    "markAuthRequired",
+    "healAuthFlagsFromQuota",
+    "setCatalog",
+    "catalogForAccount",
+    "canCutOnTool",
+    "retainAcpSession",
+    "onQuotaExhausted",
+    "advanceAccount",
+    "avoidAccountIds"
+  ],
+  "counts": {
+    "src/domain/accounts/admin.ts": {
+      "clearAuthRequired": 1,
+      "healAuthFlagsFromQuota": 1,
+      "markAuthRequired": 1
+    },
+    "src/domain/accounts/selection.ts": {
+      "catalogForAccount": 2
+    },
+    "src/features/acp/run-attempt.ts": {
+      "onQuotaExhausted": 1
+    },
+    "src/features/background/acp-watch.ts": {
+      "retainAcpSession": 3
+    },
+    "src/features/background/watcher.ts": {
+      "retainAcpSession": 3
+    },
+    "src/features/quota/pool-sweep.ts": {
+      "healAuthFlagsFromQuota": 4
+    },
+    "src/features/quota/refresh.ts": {
+      "clearAuthRequired": 3,
+      "markAuthRequired": 4
+    },
+    "src/features/quota/token.ts": {
+      "clearAuthRequired": 2,
+      "markAuthRequired": 2
+    },
+    "src/features/subagent/tracker.ts": {
+      "onQuotaExhausted": 4
+    },
+    "src/host/adapter.ts": {
+      "avoidAccountIds": 2,
+      "setCatalog": 1
+    },
+    "src/host/pool-auth.ts": {
+      "clearAuthRequired": 2
+    },
+    "src/host/pool.ts": {
+      "advanceAccount": 1,
+      "avoidAccountIds": 4,
+      "catalogForAccount": 3,
+      "clearAuthRequired": 2,
+      "healAuthFlagsFromQuota": 2,
+      "markAuthRequired": 2,
+      "setCatalog": 1
+    },
+    "src/host/run-settlement.ts": {
+      "advanceAccount": 6,
+      "markAuthRequired": 2
+    },
+    "src/host/services.ts": {
+      "retainAcpSession": 1,
+      "setCatalog": 1
+    },
+    "src/provider/account-selection.ts": {
+      "avoidAccountIds": 4
+    },
+    "src/provider/attempt-outcome.ts": {
+      "markAuthRequired": 1
+    },
+    "src/provider/attempt.ts": {
+      "avoidAccountIds": 1,
+      "onQuotaExhausted": 1
+    },
+    "src/provider/finalize.ts": {
+      "advanceAccount": 5,
+      "markAuthRequired": 1
+    },
+    "src/provider/mapper/event-mapper.ts": {
+      "canCutOnTool": 6
+    },
+    "src/provider/quota-failover.ts": {
+      "advanceAccount": 1,
+      "onQuotaExhausted": 1
+    },
+    "src/provider/span.ts": {
+      "canCutOnTool": 1
+    }
+  }
+}
