@@ -87,6 +87,14 @@ quota refresh and token refresh now funnel through the writer; run settlement
 and the explicit user paths still call `markAuthRequired`/`clearAuthRequired`
 directly.
 
+Residual edge: `setCatalog`/`catalogForAccount` stay on the manager. Eligibility
+needs a model catalog discovered asynchronously per account, and threading an
+immutable snapshot through selection, retry policy, one-shot calls, external
+leases and the model picker would move the mutation from one facade to a dozen
+call sites without removing the dependency. The pair is the intentional seam;
+the pure `deriveEligibility` already takes catalog-derived facts as inputs, so a
+future snapshot handoff changes only the adapter, not the decision rule.
+
 ## Kernel B — inference stream ↔ tool mirror
 
 ```
