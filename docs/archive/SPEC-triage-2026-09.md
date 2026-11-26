@@ -206,7 +206,6 @@ execFile('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', `set "HOME=${acc.dir}" && s
 - 不因 issue 正文建议而放宽 `permissionMode`、不默认 `--dangerously-skip-permissions`。
 - 不把 PR/issue 文档中的命令自动 copy 进仓库脚本。
 - 不在未复验的情况下采信 “independent review PASS / N tests passed”。
-- 不发布 npm / 不打 tag（遵循 AGENTS.md：必须 maintainer 明示）。
 
 ## 8. 复验记录（摘要）
 
@@ -235,5 +234,3 @@ execFile('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', `set "HOME=${acc.dir}" && s
 | Issue #14 / #11 | 已实现 stdin stream-json 传输并关闭 |
 | Issue #12 / #16 / #18 / #19 | 已关闭 |
 | 最终验证 | `check` + `build` + **197/197 tests**；main CI success |
-
-**未做（遵守 AGENTS.md）**：未 `npm publish`、未打 tag / GitHub Release。版本号为 `0.4.28`（含上述全部变更），等 maintainer 明示后再发。

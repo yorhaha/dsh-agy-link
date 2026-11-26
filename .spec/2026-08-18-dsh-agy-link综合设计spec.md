@@ -8,7 +8,7 @@
 
 ## 0. 摘要
 
-**做什么**：一个 DSH 插件（npm 包 `dsh-agy-link`，已确认可注册），核心是一个 `LlmAdapter`——把 DSH 的 `ctx.llm` 流式调用翻译为本地 `agy -p --output-format stream-json` 子进程，解析官方 NDJSON 事件流回填 DSH 的 `StreamChunk` 协议（text/reasoning/usage/finish），并把 DSH 会话与 agy conversation 持久绑定实现多轮续聊。配套：模型自动发现（`agy models --output-format json`）、GUI 内 OAuth 登录助手、`/agy` 命令族、设置卡片、`agy_ask` 委托工具、诊断包、CI/发布/市场上架工程。
+**做什么**：一个 DSH 插件（npm 包 `dsh-agy-link`，已确认可注册），核心是一个 `LlmAdapter`——把 DSH 的 `ctx.llm` 流式调用翻译为本地 `agy -p --output-format stream-json` 子进程，解析官方 NDJSON 事件流回填 DSH 的 `StreamChunk` 协议（text/reasoning/usage/finish），并把 DSH 会话与 agy conversation 持久绑定实现多轮续聊。配套：模型自动发现（`agy models --output-format json`）、GUI 内 OAuth 登录助手、`/agy` 命令族、设置卡片、`agy_ask` 委托工具、诊断包、CI/市场上架工程。
 
 **为什么是现在**：本机 agy 1.1.13 已提供官方机器可读输出（`--output-format stream-json`，1.1.8 引入、1.1.12 扩展到 models/agents 子命令），pi 桥赖以生存的 SQLite+protobuf 逆向轮询可以被**官方稳定接口**取代——我们继承它的会话绑定/流式增量/回退目录等工程精华，抛弃它的逆向脆弱性与宿主打补丁。
 
@@ -94,7 +94,7 @@
   ```
   加 `node scripts/generate-readme.mjs` 重新生成的 README 一并提交。
 - **CI 硬性要求**：package.json 声明 `dsh.bundle`（仅有 dsh.client 会被拒）；仓库 ≥1 天且 ≥10 commits；带 `dsh-plugin` topic。合并后 1–2 天自动同步进市场，无人工审核。
-- dshmarket 安装侧安全：只装 registry 收录来源；npm tarball 优先（先发 npm 再上架，安装秒级且免 allowBuilds）。
+- dshmarket 安装侧安全：只装 registry 收录来源；npm tarball 优先（安装秒级且免 allowBuilds）。
 - 竞品 radar 教训（dsh-lark-link 的 ISSUE 实录）：仓库命名避免歧义、star/verdict 来自自动扫描——**README 首屏写清包名与安装命令**，防占位 URL 误判。
 
 ### 1.5 竞品与"取其精华去其糟粕"
@@ -125,7 +125,6 @@ model 分类下 29 个竞品中最相关的对标（registry snapshot 实读）�
 3. **多轮续聊**：DSH 会话 ↔ agy conversation 持久绑定；重启 DSH 后继续原 agy 会话。
 4. **GUI 登录闭环**：`/agy auth` 在 Web GUI 内完成 Google OAuth（显示链接+二维码，粘贴 code），无需终端。
 5. **命令族**：`/agy status|auth|models|mode|effort|doctor|clear`。
-6. **发布**：npm 包 + GitHub 仓库（topic `dsh-plugin`）+ awesome-dsh-plugin PR（category: model）+ CI/Release 工作流 + issue/PR 模板 + 双语 README。
 
 ### 2.2 P1
 
@@ -253,7 +252,6 @@ dsh-agy-link/
 ├── tsconfig.json / tsdown.config.ts
 ├── .github/
 │   ├── workflows/ci.yml      # check+test+build+pack（§12）
-│   ├── workflows/publish.yml # release published → npm
 │   ├── ISSUE_TEMPLATE/bug.md · feature.md
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── docs/KNOWN-GAPS.md · AUTH.md · SECURITY-NOTES.md
@@ -495,36 +493,32 @@ DSH 侧起 127.0.0.1 Streamable HTTP MCP server（`@modelcontextprotocol/sdk`，
 
 ---
 
-## 12. 仓库与发布工程（沿袭 dsh-lark-link 实战模板）
+## 12. 仓库工程（沿袭 dsh-lark-link 实战模板）
 
 ### 12.1 Git workflow
 
 - `main` 受保护（PR only，CI 绿才可并）；feature 分支 `feat/*` `fix/*` `docs/*`。
-- Conventional Commits（`feat:` `fix:` `docs:` `chore(release):`），每次发版 `chore(release): x.y.z` 提交 + tag `vx.y.z` + GitHub Release（notes 取 CHANGELOG 当节）。
+- Conventional Commits（`feat:` `fix:` `docs:`）。
 - CHANGELOG.md 手动维护，格式沿袭 lark-link（每版本一节，Fix/New/Docs + 根因说明）。
 
 ### 12.2 CI（`.github/workflows/ci.yml`，照抄 lark-link 骨架）
 
 push/PR → node 24 → `npm ci` → `npm run check` → `npm test` → `npm run build` → `npm pack --dry-run`（files 白名单校验）。
 
-### 12.3 Publish（`.github/workflows/publish.yml`）
-
-`on: release: published` → node 24 + npm registry → ci/check/test/build → `npm publish --access public`（`NODE_AUTH_TOKEN`，environment: npm）。**先发 npm 再提交市场 PR**（dshmarket 安装走 npm tarball 最快且免 allowBuilds）。
-
-### 12.4 Issue / PR 模板
+### 12.3 Issue / PR 模板
 
 - `.github/ISSUE_TEMPLATE/bug.md`：现象 / 复现步骤 /` **`/agy doctor` 诊断文件内容**（置顶引导）/ agy 版本 / DSH 版本 / OS。
 - `.github/ISSUE_TEMPLATE/feature.md`：动机 / 期望行为 / 是否愿意提 PR。
 - `.github/PULL_REQUEST_TEMPLATE.md`：改动摘要 / 关联 issue / 自测清单（check+test+build / 真机手工项 / CHANGELOG 已更新）。
 
-### 12.5 README（双语，推广主战场）
+### 12.4 README（双语，推广主战场）
 
 - 首屏：mascot 图（**绝对 URL**，JSDelivr CDN——lark-link 0.3.2 教训：npm 不解析相对路径）+ badges（npm/CI/license/node）+ 一句话价值。
 - 中文版按 lark-link 风格：为什么 / 能力表 / 快速开始（3 条命令）/ 命令表 / 配置表 / 权限与 ToS 红字 / FAQ（登录过期、未安装、慢、配额）/ 诊断指引。
 - 安装命令显式带 `--profile web`；对比表（vs 直接用 agy / vs pi 桥）。
 - topics：`dsh-plugin` `antigravity` `gemini` `deepseek-harness` `agy`（`dsh-plugin` 为市场硬性要求）。
 
-### 12.6 市场上架（awesome-dsh-plugin PR）
+### 12.5 市场上架（awesome-dsh-plugin PR）
 
 ```yaml
 # data/plugins/<owner>__dsh-agy-link.yml
@@ -535,7 +529,7 @@ description:
   en: Use Google Antigravity (agy CLI) Gemini/Claude/GPT-OSS models in DeepSeek Harness, with streaming output, thinking, tool activity, token usage and in-GUI Google OAuth login.
   zh: 在 DeepSeek Harness 中使用 Google Antigravity（agy CLI）的 Gemini/Claude/GPT-OSS 订阅模型：流式输出、思考过程、工具活动、用量统计与 GUI 内谷歌登录。
 ```
-+ `node scripts/generate-readme.mjs` 产物一并提交。**提交前置清单**：npm 已发布 ✓ / `dsh.bundle` 已声明 ✓ / 仓库 ≥1 天 + ≥10 commits（开发期攒够再提）/ topic `dsh-plugin` ✓ / 本机 `dshmarket` 能搜到并一键安装（用户本地已装 market，直接当验收环境）。合并后 1–2 天进市场。
++ `node scripts/generate-readme.mjs` 产物一并提交。**提交前置清单**：`dsh.bundle` 已声明 ✓ / 仓库 ≥1 天 + ≥10 commits（开发期攒够再提）/ topic `dsh-plugin` ✓ / 本机 `dshmarket` 能搜到并一键安装（用户本地已装 market，直接当验收环境）。合并后 1–2 天进市场。
 
 ---
 
@@ -548,7 +542,7 @@ description:
 | M3 全体验 | thinking 流式 + 工具活动块 + usage 入账 + 错误码全表 + watchdog | 思考折叠可见；token meter 显示四项；拔网线/杀进程归因正确 |
 | M4 认证+命令 | /agy status/auth/models/mode/clear/doctor + GUI auth 面板（URL+二维码+code） | 过期后 GUI 内 60s 重登成功；doctor 文件可直接贴 issue |
 | M5 设置卡+热改 | client 设置卡（状态/热改）+ settings 命名空间 + sidebar 状态灯 | GUI 改 mode/effort 下轮生效 |
-| M6 发布闭环 | README 双语 + CI/publish 工作流 + issue/PR 模板 + npm 发布 + awesome PR + 本机 market 验收 | 市场可搜可装；release→npm 自动发布 |
+| M6 市场闭环 | README 双语 + CI 工作流 + issue/PR 模板 + awesome PR + 本机 market 验收 | 市场可搜可装 |
 | M7（P1 追加） | agy_ask 工具 + diff 渲染 + /agy effort/update | 模型可委托 agy 一次性任务 |
 
 ---
@@ -561,15 +555,14 @@ description:
 4. OAuth 过期后的下一次请求返回明确 AUTH 错误 + 状态灯变黄 + GUI 一键重登恢复。
 5. 未装 agy / agy 过旧两种环境下插件 dormant 或给出可执行升级指引，无报错刷屏。
 6. `npm test` 全绿（夹具回放，不打真后端）；`tsc --noEmit` 干净；`npm pack` 产物最小。
-7. 发布链路验收：GitHub Release → npm 自动发布；awesome PR 合并后本机 dshmarket 搜索"dsh-agy-link"一键安装成功。
-8. pi 桥功能对照表（§4）P0 行全数落地，文档 KNOWN-GAPS 列明 P1/P2 缺口。
+7. pi 桥功能对照表（§4）P0 行全数落地，文档 KNOWN-GAPS 列明 P1/P2 缺口。
 
 ---
 
 ## 15. Boundaries
 
 **Always**：改任何行为先改本 spec 再实现；每个里程碑 TDD 全绿推进；错误路径必须给"下一步做什么"；新依赖进 runtime 前先问。
-**Ask first**：MCP 反向桥（P2）与任何 MCP SDK 依赖；修改用户 agy 全局配置；自动写用户 `agent-default-model`；发 npm / 提市场 PR / 打 tag。
+**Ask first**：MCP 反向桥（P2）与任何 MCP SDK 依赖；修改用户 agy 全局配置；自动写用户 `agent-default-model`；提市场 PR。
 **Never**：读取/复制/移动 agy OAuth token 文件；在 agy 之上再套 token 复用（ToS 红线）；提交任何密钥/完整 URL 到日志与诊断包；绕过 DSH 的 `ctx.llm` 私改模型注册表。
 
 ---

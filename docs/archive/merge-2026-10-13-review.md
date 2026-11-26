@@ -97,6 +97,6 @@ pnpm test        -> exit 0（31 个测试文件、328 用例通过、0 失败）
 - **客户端半**：刷新页面即生效——`dist/client.js` 中已无 `win-isolation` 渲染，横幅不会再出现。
 - **宿主半**：需要**重启 DSH / 重载插件**。当前 `GET /plugins/agy-link/status` 仍返回
   `credentialIsolationLimited`，证明运行中的宿主进程还是旧代码；宿主半决定凭据交接是否真的生效。
-- **未做**：没有 `push`、没有打 tag、没有发布（遵循 AGENTS.md：发布需你显式下令）。
+- **未做**：没有 `push`。
 - **已知边界**：凭据槽互斥锁是**进程级**的——web 与 headless 同时驱动 agy 仍有交叉写风险；
   Windows 上建议 `maxConcurrent=1`，并避免两个宿主同时跑。彻底解决需上游 agy 按 HOME 命名 keyring。
