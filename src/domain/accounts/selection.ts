@@ -19,11 +19,12 @@ import {
   LOW_QUOTA_5H,
   LOW_QUOTA_WEEKLY,
 } from '../../common/quota-bench.ts'
+import { deriveEligibility, type EligibilityReason } from './evidence.ts'
 
 export { isQuotaBenched, LOW_QUOTA_5H, LOW_QUOTA_WEEKLY }
 
 /** Why the account cannot serve a family right now (diagnostics only). */
-export type AccountIneligibilityReason = 'disabled' | 'auth' | 'cooldown' | 'quota' | 'unsupported' | 'model-unsupported' | 'model-cooldown'
+export type AccountIneligibilityReason = EligibilityReason
 
 /**
  * The slice of the manager the Argon check needs: whether the account has
@@ -45,20 +46,21 @@ export function explainIneligibility(
   pool?: DedicatedGroupSource | null,
   model?: string,
 ): AccountIneligibilityReason | null {
-  if (!acc.enabled) return 'disabled'
-  if (isAccountCriticalAuth(acc)) return 'auth'
-  if (family === 'argon' && !accountHasArgon(acc, pool, pool?.catalogForAccount?.(acc.id))) return 'unsupported'
-  if (model && pool?.isModelSupported && !pool.isModelSupported(acc, model)) {
-    return 'model-unsupported'
-  }
   const cd = effectiveFamilyCooldown(acc, family)
-  if (cd && cd.cooldownUntil > now) return 'cooldown'
-  if (model) {
-    const mcd = acc.modelCooldowns?.[baseModelSlug(model)]
-    if (mcd && mcd.cooldownUntil > now) return 'model-cooldown'
-  }
-  if (isQuotaBenched(acc, family, now, model)) return 'quota'
-  return null
+  const mcd = model ? acc.modelCooldowns?.[baseModelSlug(model)] : undefined
+  return deriveEligibility({
+    enabled: acc.enabled === true,
+    criticalAuth: isAccountCriticalAuth(acc),
+    argonUnsupported: family === 'argon' && !accountHasArgon(acc, pool, pool?.catalogForAccount?.(acc.id)),
+    modelUnsupported: Boolean(
+      model
+      && typeof pool?.isModelSupported === 'function'
+      && !pool.isModelSupported(acc, model),
+    ),
+    ...(cd === undefined ? {} : { familyCooldownUntil: cd.cooldownUntil }),
+    ...(mcd === undefined ? {} : { modelCooldownUntil: mcd.cooldownUntil }),
+    quotaBenched: isQuotaBenched(acc, family, now, model),
+  }, now)
 }
 
 /**
