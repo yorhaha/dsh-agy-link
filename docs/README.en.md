@@ -115,7 +115,7 @@ Every key, env var and default lives in **one place**: [CONFIGURATION.md](./CONF
 ## 🧩 How it works
 
 1. **Persistent `agy acp` default, CLI (`-p`) fallback:** each turn (incl. `isAux`) reuses `agy acp` stdio processes (ephemeral aux sessions `session/close` on settlement; pre-stream failures fall back to `agy -p`).
-2. **Per-account sandbox:** primary uses system HOME/keychain; secondaries get isolated HOME with `0600` credentials + `.bak`. Windows leases the slot by identity so same-account sessions run concurrently.
+2. **Single-account credential lease:** uses the system `agy` sign-in and system keychain; Windows leases the slot by identity so same-account sessions run concurrently.
 3. **CLI-first quota & pooled failover:** `agy -p /usage` preferred, `retrieveUserQuotaSummary` fallback; 429/quota/region/auth classified per family — cool down, rotate, or retry.
 4. **Aux routes:** translation, titles, goal derivation ride the same pool via dedicated `purpose` without polluting a binding.
 

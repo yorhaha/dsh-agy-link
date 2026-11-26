@@ -23,7 +23,7 @@
 
 # 中文
 
-把 **Google Antigravity 模型接入 DeepSeek Harness（DSH）**：多账号智能池化、CLI 优先多 Bucket 配额监控、`agy acp` / 短进程 `-p` 双传输、浏览器一键登录、多模态附件与 Generative UI。由官方未修改的 `agy` CLI 驱动，支持流式输出、思考折叠、原生工具卡片与 1M 上下文计量。
+把 **Google Antigravity 模型接入 DeepSeek Harness（DSH）**：单账号直连、CLI 优先多 Bucket 配额监控、`agy acp` / 短进程 `-p` 双传输、浏览器一键登录、多模态附件与 Generative UI。由官方未修改的 `agy` CLI 驱动，支持流式输出、思考折叠、原生工具卡片与 1M 上下文计量。
 
 <p align="center">
   <img src="./docs/assets/console.png" alt="Antigravity 控制台" width="760" />
@@ -156,7 +156,7 @@ Windows 上所有 `agy.exe` 共用凭据条目 `gemini:antigravity`，改 HOME �
 分层与依赖方向见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；开发门禁见 [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)。
 
 1. **双传输**：默认持久 `agy acp` 会话池，流前异常回退 CLI；需 `--settings` / `--json-schema` 时走 `-p`。
-2. **多账号沙箱与凭据租约**：主账号用系统 HOME / 钥匙串，备用账号隔离于 `~/.dsh/agy-accounts/<id>`；Windows 以引用计数租约接管全局槽。
+2. **单账号凭据租约**：使用系统 `agy` 登录态与系统钥匙串；Windows 以引用计数租约接管全局槽。
 3. **配额汇总**：`agy -p /usage` 优先，必要时回退 `retrieveUserQuotaSummary`，追踪 5h / 7d / Argon 周池。
 4. **故障转移与自愈**：按模型族独立分类与冷却 429 / 额度耗尽 / 地区限制 / 鉴权异常。
 5. **辅助通道隔离**：标题生成与目标推导走专用 `purpose`，共享同一账号但不污染主会话绑定。
