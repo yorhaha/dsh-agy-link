@@ -181,8 +181,9 @@ test('the plugin source wires deferred maintenance instead of doing it inline at
   assert.equal(/pool\.sweepStaleStaging\(\)/.test(hygiene), false, 'staging sweep must not run on the load path')
   const index = readFileSync(join(process.cwd(), 'src/index.ts'), 'utf8')
   assert.match(index, /scheduleBootMaintenance\(/)
-  // The boot probe must not fan the model discovery out over the whole pool.
-  assert.match(index, /if \(getConfig\(\)\.poolWideCatalog\)/)
+  // The boot probe must not fan model discovery out over several accounts: the
+  // multi-account warm-up path is gone with the pool.
+  assert.equal(/warmAccounts\(/.test(index), false, 'the boot path must not warm a pool of accounts')
   assert.match(index, /activeRunCount\(\) > 0/)
 })
 

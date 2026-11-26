@@ -133,10 +133,10 @@ dsh plugin --profile web add dsh-agy-link
 
 Windows 上所有 `agy.exe` 共用凭据条目 `gemini:antigravity`，改 HOME 只换会话目录、不换身份。外部进程（如需扛过 DSH 重启的 runner）看不到插件内存计数，故提供租约 API 参与同一套选号 / 取槽 / 结算。
 
-- **隔离备用账号 + agy ≥ 1.5**：不占槽（`slot: false`），返回 `env` 含 `SSH_CONNECTION`，agy 只读该账号 token，可与其它账号无锁并行。发放前插件把 token 刷新进 CLI 安全窗口；版本未知时先探测，探测失败按占槽处理。
-- **主账号 / agy < 1.5 的隔离账号**：持有凭据槽（`slot: true`）。
+- **隔离凭据 + agy ≥ 1.5**：不占槽（`slot: false`），返回 `env` 含 `SSH_CONNECTION`，agy 只读该账号 token。发放前插件把 token 刷新进 CLI 安全窗口；版本未知时先探测，探测失败按占槽处理。
+- **主账号 / agy < 1.5**：持有凭据槽（`slot: true`）。
 
-**发现端点**：`<号池目录>/.link-endpoint.json`（默认 `~/.dsh/agy-accounts`），含 `url / pid / startedAt / token`，权限 `0600`，token 每次启动重生成。
+**发现端点**：`<账号状态目录>/.link-endpoint.json`（默认 `~/.dsh/agy-accounts`），含 `url / pid / startedAt / token`，权限 `0600`，token 每次启动重生成。
 
 **鉴权**：所有 `/lease*` 请求需 `Authorization: Bearer <token>`，缺失或不符 `401`；带非本机 `Origin` 的浏览器请求 `403`。
 
@@ -159,7 +159,7 @@ Windows 上所有 `agy.exe` 共用凭据条目 `gemini:antigravity`，改 HOME �
 2. **多账号沙箱与凭据租约**：主账号用系统 HOME / 钥匙串，备用账号隔离于 `~/.dsh/agy-accounts/<id>`；Windows 以引用计数租约接管全局槽。
 3. **配额汇总**：`agy -p /usage` 优先，必要时回退 `retrieveUserQuotaSummary`，追踪 5h / 7d / Argon 周池。
 4. **故障转移与自愈**：按模型族独立分类与冷却 429 / 额度耗尽 / 地区限制 / 鉴权异常。
-5. **辅助通道隔离**：标题生成与目标推导走专用 `purpose`，共享号池但不污染主会话绑定。
+5. **辅助通道隔离**：标题生成与目标推导走专用 `purpose`，共享同一账号但不污染主会话绑定。
 
 ---
 

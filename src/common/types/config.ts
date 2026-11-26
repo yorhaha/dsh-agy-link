@@ -205,13 +205,6 @@ export interface PluginConfig {
    */
   showHeaderBadge: boolean
   /**
-   * Show the union of models supported by every enabled pool account in the
-   * picker (default: false = strict single-account isolation). Opt-in so a
-   * multi-account user can pick a model owned by another account and let
-   * `selectAccount(family, model)` route to it automatically.
-   */
-  poolWideCatalog: boolean
-  /**
    * Wake idle DSH sessions across turns when an agy `schedule` timer,
    * detached background task/subagent, or persistent ACP update finishes
    * after the turn ends.
@@ -330,7 +323,6 @@ export function defaultConfig(): PluginConfig {
     // window; other platforms keep agy's own update behaviour by default.
     suppressAgyAutoUpdate: process.platform === 'win32',
     showHeaderBadge: true,
-    poolWideCatalog: false,
     backgroundWakeup: false,
     backgroundWakeupTtlMinutes: 30,
     backgroundWakeupMaxPerSession: 12,

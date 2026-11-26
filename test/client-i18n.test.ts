@@ -96,10 +96,10 @@ test('native-contract locale lifecycle registers, publishes switches, falls back
   assert.equal(registeredSlots[8]!.options.key, 'agy-acp-notice')
   assert.equal(registeredSlots[9]!.options.name, 'conversation.chat.commandview')
   const t = locale.bind('agy-link')
-  locale.setLocale('pt-BR'); assert.equal(t('account.add'), 'Adicionar conta Google')
-  locale.setLocale('es'); assert.equal(t('account.add'), 'Añadir cuenta de Google')
+  locale.setLocale('pt-BR'); assert.equal(t('account.add'), 'Entrar com o Google')
+  locale.setLocale('es'); assert.equal(t('account.add'), 'Iniciar sesión con Google')
   delete dictionaries.get('agy-link/es')!['account.add']
-  assert.equal(t('account.add'), 'Add Google account')
+  assert.equal(t('account.add'), 'Sign in with Google')
   for (const dispose of cleanup.reverse()) dispose()
   assert.deepEqual([...catalog.keys()], ['zh', 'en'])
   assert.equal(dictionaries.size, 0)

@@ -26,7 +26,6 @@ Resolution order (highest first): `DSH_AGY_*` environment variable → runtime o
 | --- | --- | --- | --- |
 | `defaultModel` | `DSH_AGY_DEFAULT_MODEL` | `''` (agy default) | Initial model slug |
 | `defaultEffort` | `DSH_AGY_DEFAULT_EFFORT` | `high` | Initial thinking effort; the menu offers exactly the levels the live catalog advertises (`low`/`medium`/`high`/`xhigh`/`max`) plus `auto`. |
-| `poolWideCatalog` | `DSH_AGY_POOL_WIDE_CATALOG` | `false` | Show the union of models from **all** enabled accounts instead of only the active account's; `selectAccount(family, model)` routes to an account that can serve it. |
 | `hiddenModels` | `DSH_AGY_HIDDEN_MODELS` | `[]` | Slugs hidden from the picker (comma separated); applied after `selectedModels`, so it wins. |
 | `selectedModels` | `DSH_AGY_SELECTED_MODELS` | `[]` | Allow-list of slugs in the picker (comma separated; empty = all). Written by the Settings tick-list; a deselected model still resolves for sessions already using it. |
 | `fallbackModels` | `—` | agy 1.5.7 lineup: Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Argon), Gemini 3.8 Flash, Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B (Medium) | Catalog shown before `agy models` succeeds (signed out or offline); mirrors `agy models` exactly, no retired entries |

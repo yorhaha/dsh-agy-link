@@ -68,12 +68,10 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   // turn is in flight and must never fan out over the whole pool.
   //
   // Before this guard the boot path was: 4s timer -> `agy --version` ->
-  // `agy models` (~4.6s, forking every MCP server) -> warmAccounts(8). Eight
+  // `agy models` (~4.6s, forking every MCP server) -> a warm-up per account. Eight
   // accounts meant tens of seconds of background churn on every DSH start, on
   // top of the MCP processes it orphaned. Now the probe waits for an idle
-  // moment, refreshes only the ACTIVE account eagerly, and leaves every other
-  // account lazy (ensureAccountCatalog loads it on first use) unless the
-  // opt-in pool-wide catalog actually needs them.
+  // moment and refreshes the one account eagerly, with no fan-out at all.
   const BOOT_PROBE_DELAY_MS = 4_000
   const BOOT_PROBE_RETRY_MS = 20_000
   let bootProbeTimer: ReturnType<typeof setTimeout> | null = null
@@ -119,11 +117,6 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
     // ONE spawn for the account the picker actually shows.
     await catalog.refreshIfNeeded(activeId).catch(() => undefined)
     notifyPicker()
-    // Per-account rows load lazily on first use, so startup never pays an
-    // agy models + MCP boot storm again.
-    if (getConfig().poolWideCatalog) {
-      void catalog.warmAccounts(services.pool.getAccounts()).catch(() => undefined)
-    }
   }
 
   const scheduleBootProbe = (delayMs: number): void => {

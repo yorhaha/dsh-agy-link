@@ -15,7 +15,7 @@
 不变式：
 - 文档**必须**带本地时区偏移 ISO `expiry`（`tokens.expiryMs`；缺失时用 `now + 1h` 有界兜底，issue #112）；后台配额刷新的 `persistRefreshedToken()` 同样必须复用 `writeFileAtomicSync(..., 0o600)` 原子写入，严禁原地截断裸写。
 - 主账号完成 OAuth 登录（`finishWithCode` 的 `primary` 分支）或导入 `refresh_token`（`importRefreshToken` 的 `systemHome` 分支）后，**必须**同步写入系统钥匙串/凭据存储（Windows 下 `writePrimaryCredential` 传入 `this.pool.dir`）并调用 `pool.clearAuthRequired(primary.id, true)`；新入池隔离账号若当前 MCP 桥已启用则同步写入隔离目录 MCP 配置。
-- **一键原地重登（In-Place Re-Authentication）**：`POST /plugins/agy-link/pool/begin-add` 支持可选 `accountId` 参数，对主账号路由至 `poolAuth.beginPrimary()`、对隔离账号路由至 `poolAuth.beginAccount(accountId)`（带邮箱一致性校验），前端异常卡片提供一键「重新登录」按钮原地恢复凭据而绝不创建重复账号槽位。
+- **一键原地重登（In-Place Re-Authentication）**：`POST /plugins/agy-link/account/begin-add` 始终路由至 `poolAuth.beginPrimary()`（可选 `proxyUrl` / `alias`），前端异常卡片提供一键「重新登录」按钮原地恢复凭据。单账号模式下不存在隔离槽位与 `beginAccount()`。
 - **`PoolAdmin.recordSuccess` 与跨进程持久化安全**：`recordSuccess()` 不得清除 `isTerminalAuthError`（如 `TOS_VIOLATION`）终态隔离；`PoolStore.persist()` 在多进程共享 `pool.json` 时合并磁盘上更新的 `quotas`、更晚的 `cooldowns` 以及终态 `TOS_VIOLATION` 标记，防止 Web 与 CLI 进程互相覆盖状态。
 
 ## 2. 新鲜度判断与防过期 Token 泄漏
@@ -70,9 +70,9 @@
 
 - `alias` 是卡片上的**显示标签**；`defaultAlias === true` 表示它仍是「自动生成」的占位（`备用 Google 账号 N` / 主账号默认名），界面会按 locale 重新渲染。
 - 用户手动改名必须走 `setAccountAlias()`——它同时 `trim()` 并置 `defaultAlias = false`，否则输入的名字永远不会被显示（界面仍在渲染生成标签）。
-- 路由 `POST /plugins/agy-link/pool/alias` 是唯一写入口：非空、长度上界、未知 id → 404。空名会让卡片无标签，因此服务端直接拒绝而不是静默接受。
+- 路由 `POST /plugins/agy-link/account/alias` 是唯一写入口：非空、长度上界（64）。空名会让卡片无标签，因此服务端直接拒绝而不是静默接受；目标账号恒为主账号，请求体里的 `id` 不再参与寻址。
 - **主账号换号自动重置旧别名（issue #152 第二部分）**：当 `systemHome` 主账号通过 `/agy auth` 重新登录为**不同 Google 邮箱**时，`resetAccountIdentity(id, email, true)` 同步重置自定义旧别名并恢复 `defaultAlias = true`，防止卡片仍展示上一个账号的名称。
-- 锚点：`test/issue152-alias-edit.test.ts`、`test/slice3-ssh-tier-143-145-152.test.ts`、`test/http-contract.test.ts`（路由表面登记）。
+- 锚点：`test/slice3-ssh-tier-143-145-152.test.ts`、`test/http-contract.test.ts`（路由表面登记与别名校验）。
 
 ## 6. 三端免全局钥匙串隔离（`SSH_CONNECTION`）与外部独立登录保护（issue #145）
 

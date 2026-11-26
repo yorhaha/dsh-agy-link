@@ -37,13 +37,11 @@ export function listAvailableModels(deps: ModelResolutionDeps): readonly LlmMode
   const cfg = deps.getConfig()
   const activeAcc = activeAccount(deps)
 
-  // Default (issue #106 / v0.6.21 isolation): the picker shows only the models
-  // the ACTIVE account supports. With `poolWideCatalog` the picker shows the
-  // union across enabled accounts instead — the scheduler already routes by
-  // `selectAccount(family, model)` (PR #100), so a model owned by another
-  // account is served by that account without a manual switch (issue #107).
+  // The picker shows only the models the PRIMARY account supports: the plugin
+  // drives a single account, so a union across rows would just add catalog
+  // entries no credential can serve (issue #106 / v0.6.21 isolation).
   let models: readonly CatalogEntry[]
-  if (activeAcc && pool && !cfg.poolWideCatalog) {
+  if (activeAcc && pool) {
     models = deps.catalog.getModelsForAccount(activeAcc, pool)
     if (!deps.catalog.hasAccountCatalog(activeAcc.id)) {
       // Read path: throttled, change-only announcements. Never use the
@@ -61,7 +59,7 @@ export function listAvailableModels(deps: ModelResolutionDeps): readonly LlmMode
       'model catalog contained duplicate ids [' + dropped.join(', ') + '] — kept first occurrence so DSH does not drop the whole provider group (INVALID_CATALOG)',
     )
   }
-  const quotaScoped = quotaScopeAccounts(pool, accounts, activeAcc, cfg.poolWideCatalog)
+  const quotaScoped = quotaScopeAccounts(accounts, activeAcc)
   const visible = visibleEntries(entries, quotaScoped, cfg)
   return visible.map((m) => ({
     provider: PROVIDER_ID,
@@ -74,19 +72,13 @@ export function listAvailableModels(deps: ModelResolutionDeps): readonly LlmMode
 /**
  * Accounts whose quota snapshots describe models the picker may offer.
  *
- * Narrow mode (default) describes ONE account — the same account whose `agy
- * models` catalog the picker is showing, so the two sources never contradict
- * each other. Pool-wide mode describes every enabled account because the
- * scheduler can route to any of them (issue #107).
+ * Always ONE account — the primary whose `agy models` catalog the picker is
+ * showing, so the two sources never contradict each other.
  */
 function quotaScopeAccounts(
-  pool: ModelResolutionDeps['pool'],
   accounts: readonly ManagedAccount[],
   activeAcc: ManagedAccount | undefined,
-  poolWide: boolean,
 ): readonly ManagedAccount[] {
-  if (!pool) return []
-  if (poolWide) return accounts
   if (activeAcc) return [activeAcc]
   return accounts.slice(0, 1)
 }
@@ -164,7 +156,7 @@ export function resolveModelInfo(deps: ModelResolutionDeps, model: string): LlmR
     // A model may only be known from a quota snapshot (CLI-less host, issue
     // #131). Resolution must still find it — an in-flight conversation keeps
     // working after the user unticks it in the settings panel.
-    ?? quotaCatalogForAccounts(quotaScopeAccounts(pool, accounts, activeAcc, cfg.poolWideCatalog)).find((m) => m.id === cleanId)
+    ?? quotaCatalogForAccounts(quotaScopeAccounts(accounts, activeAcc)).find((m) => m.id === cleanId)
   const rawName = entry ? entry.name : cleanId
   const name = (typeof rawName === 'string' && rawName.trim() !== '') ? rawName.trim() : cleanId
   const contextWindow = typeof cfg.contextWindowDefault === 'number' && cfg.contextWindowDefault > 0 ? cfg.contextWindowDefault : 200_000

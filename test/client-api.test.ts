@@ -21,7 +21,7 @@ test('postJson attaches an abort signal to every write', async () => {
     seen.push(init ?? {})
     return { ok: true, status: 200, json: async () => ({ ok: true }) }
   }, async () => {
-    assert.deepEqual(await postJson('/plugins/agy-link/pool/refresh-quota', { id: 'x' }), { ok: true })
+    assert.deepEqual(await postJson('/plugins/agy-link/account/refresh-quota', { id: 'x' }), { ok: true })
   })
   assert.equal(seen.length, 1)
   assert.ok(seen[0]?.signal instanceof AbortSignal, 'a bounded write must be abortable')

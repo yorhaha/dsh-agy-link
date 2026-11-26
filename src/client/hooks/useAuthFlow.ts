@@ -4,7 +4,7 @@
 
 import type { ManagedAccount } from '../../common/pool-types.ts';
 import { en, type AgyLocaleKey } from '../locales.ts';
-import { postPool } from '../api.ts';
+import { postAccount } from '../api.ts';
 import { useEffect, useRef, useState } from '../react.ts';
 import type { StatusPayload } from '../status.ts';
 import type { ShowToast } from '../ui/Toast.ts';
@@ -23,7 +23,6 @@ export interface AuthFlow {
 	setAddingAccount: (value: boolean) => void;
 	importMode: boolean;
 	setImportMode: (value: boolean) => void;
-	reauthAccountId: string | null;
 	aliasInput: string;
 	setAliasInput: (value: string) => void;
 	addProxyInput: string;
@@ -48,14 +47,14 @@ function toSafeMessage(t: Translator, code?: string): string {
 	return code && key in en ? t(key) : t('api.genericError');
 }
 
-async function startPoolBeginRequest(
+async function startBeginRequest(
 	payload: Record<string, unknown>,
 	actionKey: string,
 	deps: Pick<AuthFlowDeps, 'refresh' | 'showToast' | 'setLoadingAction' | 't'> & { flowStartedRef: { current: boolean } },
 ): Promise<void> {
 	const { refresh, showToast, setLoadingAction, t, flowStartedRef } = deps;
 	setLoadingAction(actionKey);
-	const res = await postPool('begin-add', payload);
+	const res = await postAccount('begin-add', payload);
 	setLoadingAction(null);
 	if (res && res.ok) {
 		flowStartedRef.current = true;
@@ -70,7 +69,6 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 	const [aliasInput, setAliasInput] = useState('');
 	const [addingAccount, setAddingAccount] = useState(false);
 	const [importMode, setImportMode] = useState(false);
-	const [reauthAccountId, setReauthAccountId] = useState<string | null>(null);
 	const [authCodeInput, setAuthCodeInput] = useState('');
 	const [addProxyInput, setAddProxyInput] = useState('');
 	const [tokenInput, setTokenInput] = useState('');
@@ -85,7 +83,6 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 		setAddProxyInput('');
 		setTokenInput('');
 		setImportMode(false);
-		setReauthAccountId(null);
 	};
 
 	useEffect(() => {
@@ -107,30 +104,27 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 	const handleBeginAddAccount = async (): Promise<void> => {
 		const alias = aliasInput.trim();
 		const proxyUrl = addProxyInput.trim();
-		await startPoolBeginRequest({
-			...(reauthAccountId ? { accountId: reauthAccountId } : {}),
+		await startBeginRequest({
 			...(alias ? { alias } : {}),
 			...(proxyUrl ? { proxyUrl } : {}),
-		}, 'pool:beginAdd', beginDeps);
+		}, 'account:beginAdd', beginDeps);
 	};
 
 	const handleBeginReauth = async (acc: ManagedAccount): Promise<void> => {
 		setAddingAccount(true);
 		setImportMode(false);
-		setReauthAccountId(acc.id);
 		setAliasInput(acc.alias);
 		setAddProxyInput(acc.proxyUrl ?? '');
 		setAuthCodeInput('');
-		await startPoolBeginRequest({
-			accountId: acc.id,
+		await startBeginRequest({
 			...(acc.proxyUrl ? { proxyUrl: acc.proxyUrl } : {}),
 		}, `reauth:${acc.id}`, beginDeps);
 	};
 
 	const handleCompleteAddAccount = async (): Promise<void> => {
 		if (!authCodeInput.trim()) return;
-		setLoadingAction('pool:completeAdd');
-		const res = await postPool('complete-add', { code: authCodeInput.trim() });
+		setLoadingAction('account:completeAdd');
+		const res = await postAccount('complete-add', { code: authCodeInput.trim() });
 		setLoadingAction(null);
 		if (res && res.ok) {
 			flowStartedRef.current = false;
@@ -145,7 +139,7 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 
 	const handleCancelAddAccount = async (): Promise<void> => {
 		flowStartedRef.current = false;
-		await postPool('cancel-add', {});
+		await postAccount('cancel-add', {});
 		resetForm();
 		setAddingAccount(false);
 		await refresh();
@@ -153,8 +147,8 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 
 	const handleImportToken = async (): Promise<void> => {
 		if (!tokenInput.trim()) return;
-		setLoadingAction('pool:importToken');
-		const res = await postPool('import', {
+		setLoadingAction('account:importToken');
+		const res = await postAccount('import', {
 			token: tokenInput.trim(),
 			...(aliasInput.trim() ? { alias: aliasInput.trim() } : {}),
 			...(addProxyInput.trim() ? { proxyUrl: addProxyInput.trim() } : {}),
@@ -174,7 +168,7 @@ export function useAuthFlow({ status, refresh, showToast, setLoadingAction, t }:
 	const flowPhase = poolAuth?.phase ?? 'idle';
 
 	return {
-		addingAccount, setAddingAccount, importMode, setImportMode, reauthAccountId,
+		addingAccount, setAddingAccount, importMode, setImportMode,
 		aliasInput, setAliasInput, addProxyInput, setAddProxyInput,
 		authCodeInput, setAuthCodeInput, tokenInput, setTokenInput,
 		safeMessage, handleBeginAddAccount, handleBeginReauth, handleCompleteAddAccount,

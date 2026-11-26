@@ -19,11 +19,7 @@ const SHARED_GEMINI_DESC =
   'Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon), Orchestrator (Carbon), Orchestrator (Argon), Gemini 3.8 Flash'
 
 const noopHandlers = {
-  moveAccount: async () => {},
-  setActiveAccount: async () => {},
   beginReauth: async () => {},
-  removeAccount: async () => {},
-  toggleAccountEnabled: async () => {},
   refreshQuota: async () => {},
   saveProxy: async () => {},
   saveAlias: async () => {},
@@ -151,7 +147,6 @@ test('Gap 1: shared-group google/argon cooldowns, countdowns, selection, clearCo
       setEditingAliasId: () => {},
       expandedModels: {},
       toggleExpand: () => {},
-      optimisticActiveByFamily: {},
       handlers: noopHandlers,
     }))
     assert.equal(panelTree.includes('"Argon"'), false, 'shared-group cooling must not render a phantom Argon bar')

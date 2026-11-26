@@ -87,13 +87,8 @@ function baseTabProps(tab: ConsoleTabId, dict: Record<string, string> = zh): Con
 		setEditingAliasId: () => {},
 		expandedModels: {},
 		toggleExpand: () => {},
-		optimisticActiveByFamily: {},
 		accountHandlers: {
-			moveAccount: async () => {},
-			setActiveAccount: async () => {},
 			beginReauth: async () => {},
-			removeAccount: async () => {},
-			toggleAccountEnabled: async () => {},
 			refreshQuota: async () => {},
 			saveProxy: async () => {},
 			saveAlias: async () => {},
@@ -109,11 +104,11 @@ test('console tabs separate accounts, models/orchestrator, features, and runtime
 	// 1. Accounts tab: shows the single account pool, keeps other tabs out
 	const accountsHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('accounts'))))
 	assert.ok(accountsHtml.includes('role="tablist"'))
-	assert.ok(accountsHtml.includes('账号池 (1)'))
+	assert.ok(accountsHtml.includes(`<span class="agy2-lede-title">${zh['account.heading']}</span>`), 'the account heading names the one account, not a pool')
 	assert.equal(accountsHtml.includes(zh['config.orchestratorPlanner']), false)
 	assert.equal(accountsHtml.includes(zh['config.permissionMode']), false)
 
-	// 2. Models tab: shows poolWideCatalog + model chips + defaultEffort + Orchestrator
+	// 2. Models tab: shows model chips + defaultEffort + Orchestrator
 	const modelsHtml = renderToStaticMarkup(createElement('div', null, renderConsoleTabContent(baseTabProps('models'))))
 	assert.ok(modelsHtml.includes(zh['section.modelCatalog']))
 	assert.ok(modelsHtml.includes('Gemini 4 Neon'))

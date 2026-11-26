@@ -2,7 +2,6 @@
 
 import { WRITE_TIMEOUT_MS } from '../api.ts';
 import type { AccountPoolData } from '../../common/pool-types.ts';
-import type { QuotaFamily } from '../../common/quota-bench.ts';
 import { type EffortLabels } from '../config-options.ts';
 import { effortLabel } from '../../common/reasoning.ts';
 import { useAgyTranslation, type LocaleLike, type Translator } from '../hooks/useTranslation.ts';
@@ -92,7 +91,6 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 		const [aliasInputs, setAliasInputs] = useState<Record<string, string>>({});
 		const [editingAliasId, setEditingAliasId] = useState<string | null>(null);
 		const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
-		const [optimisticActiveByFamily, setOptimisticActiveByFamily] = useState<Partial<Record<QuotaFamily, string>>>({});
 		const [activeTab, setActiveTabState] = useState<ConsoleTabId>(() => rememberedConsoleTab);
 
 		const selectTab = (tab: ConsoleTabId): void => {
@@ -114,8 +112,8 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 		const auth = useAuthFlow({ status, refresh, showToast, setLoadingAction, t });
 		const config = useConfig({ status, refresh, showToast, setLoadingAction, t });
 		const accountActions = useAccounts({
-			status, refresh, showToast, setLoadingAction, t,
-			proxyInputs, setEditingProxyId, aliasInputs, setEditingAliasId, setOptimisticActiveByFamily,
+			refresh, showToast, setLoadingAction, t,
+			proxyInputs, setEditingProxyId, aliasInputs, setEditingAliasId,
 		});
 
 		const toggleExpand = (accId: string) => setExpandedModels((prev) => ({ ...prev, [accId]: !prev[accId] }));
@@ -145,7 +143,7 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 			addAccountSection: renderAddAccountSection(t, auth, pool, loadingAction !== null, loadingAction),
 			proxyInputs, setProxyInputs, editingProxyId, setEditingProxyId,
 			aliasInputs, setAliasInputs, editingAliasId, setEditingAliasId,
-			expandedModels, toggleExpand, optimisticActiveByFamily,
+			expandedModels, toggleExpand,
 			accountHandlers: { ...accountActions, beginReauth: auth.handleBeginReauth },
 			setCfg: config.setCfg, setSelectedModels: config.setSelectedModels,
 			setHiddenModels: (ids: ReadonlyArray<string>) => config.setCfg('hiddenModels', [...ids]),
@@ -274,7 +272,7 @@ function renderTokenImportForm(
 				style: { gap: '4px' },
 				disabled: isBusy || !auth.tokenInput.trim(),
 				onClick: () => void auth.handleImportToken(),
-			}, ...(loadingAction === 'pool:importToken' ? [Spinner(), t('auth.importingToken')] : [uiIcon('arrowDown', 12, '#ffffff'), ` ${t('auth.importToken')}`])),
+			}, ...(loadingAction === 'account:importToken' ? [Spinner(), t('auth.importingToken')] : [uiIcon('arrowDown', 12, '#ffffff'), ` ${t('auth.importToken')}`])),
 			h(Button, {
 				variant: 'default', className: 'agy-btn',
 				onClick: () => void auth.handleCancelAddAccount(),
@@ -314,7 +312,7 @@ function renderBrowserOAuthForm(
 				style: { gap: '4px' },
 				disabled: isBusy,
 				onClick: () => void auth.handleBeginAddAccount(),
-			}, ...(loadingAction === 'pool:beginAdd' ? [Spinner(), t('auth.openingBrowser')] : [uiIcon('externalLink', 12, '#ffffff'), ` ${t('auth.openBrowser')}`])),
+			}, ...(loadingAction === 'account:beginAdd' ? [Spinner(), t('auth.openingBrowser')] : [uiIcon('externalLink', 12, '#ffffff'), ` ${t('auth.openBrowser')}`])),
 			h(Button, {
 				variant: 'default', className: 'agy-btn',
 				onClick: () => void auth.handleCancelAddAccount(),
@@ -361,7 +359,7 @@ function renderWaitingCodeForm(
 				style: { gap: '4px' },
 				disabled: isBusy || !auth.authCodeInput.trim(),
 				onClick: () => void auth.handleCompleteAddAccount(),
-			}, ...(loadingAction === 'pool:completeAdd' ? [Spinner(), t('auth.activating')] : [uiIcon('check', 12, '#ffffff'), ` ${t('auth.activate')}`])),
+			}, ...(loadingAction === 'account:completeAdd' ? [Spinner(), t('auth.activating')] : [uiIcon('check', 12, '#ffffff'), ` ${t('auth.activate')}`])),
 			h(Button, {
 				variant: 'default', className: 'agy-btn',
 				onClick: () => void auth.handleCancelAddAccount(),

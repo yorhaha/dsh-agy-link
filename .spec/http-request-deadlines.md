@@ -25,11 +25,11 @@
 - **`/plugins/agy-link/status` 条件缓存与后台节流**：
   - 服务端生成弱 `ETag`；当请求携带匹配的 `If-None-Match` 时返回 `304 Not Modified`（零响应体开销），未携带时正常返回 `200 application/json; charset=utf-8`。
   - 客户端 `status.ts` 采用单飞请求合并与递增序号防旧包倒灌，页面隐藏（`document.hidden`）时暂停高频轮询，切回前台或收到 `llm/models-updated` / `llm/adapters-updated` 时立即触发同步。
-- **`/pool/refresh-quota`（非阻塞立即确认 + 按账号去重 + 真实进度 + 目录解耦）**：立即返回 `{ ok: true, pending: true, alreadyRunning, pool }`，后台通过 `quotaRefreshInFlight` 去重执行并在数据或模型变化时广播选择器更新，控制台 3s 轮询自动带出最新额度；后续 `triggerCatalogWarm()` 以后台方式异步触发 `catalog.warmAccounts()`，不再阻塞 `quotaRefreshInFlight` 的锁释放。
+- **`/account/refresh-quota`（非阻塞立即确认 + 按账号去重 + 真实进度 + 目录解耦）**：立即返回 `{ ok: true, pending: true, alreadyRunning, pool }`，后台通过 `quotaRefreshInFlight` 去重执行并在数据或模型变化时广播选择器更新，控制台 3s 轮询自动带出最新额度；后续目录预热以后台方式异步执行，不再阻塞 `quotaRefreshInFlight` 的锁释放。
   - `alreadyRunning: true` 表示**同 key 刷新仍在途**，本次点击不会新建管线；客户端据此提示「正在刷新中」而不是谎报「已开始刷新」（旧行为让用户在去重窗口内反复点击却毫无反馈）。
   - 刷新中的账号 id 由 `/status.quotaRefreshing`（`QuotaService.refreshingAccounts()`）透出，账号卡据此渲染真实的「同步中」；不再由客户端点击状态推导（关闭弹窗重开不丢态）。
 - **`/lease/acquire`（有界等槽）**：等槽时长由注册表内部的 `waitMs` 截止时间约束（默认 `dispatchTimeoutMinutes × 60000`，上限 1 小时，到点 `504 slot_timeout`）；路由兜底 deadline 为 `longRouteTimeout(1h)`。若兜底先应答，之后才拿到的租约立即释放，不留孤儿槽持有者。
-- **`/pool/refresh-quota`（非阻塞后台作业 + 去重 + 宿主态进度）**：
+- **`/account/refresh-quota`（非阻塞后台作业 + 去重 + 宿主态进度）**：
   - 立即返回 `{ ok: true, pending: true, alreadyRunning, pool }`，宿主通过 `quotaRefreshInFlight` 去重执行（`QUOTA_REFRESH_DEDUP_MS = 90_000`）；刷新中的账号 id 由 `/status.quotaRefreshing` 实时透出，使客户端关闭/重开管理弹窗仍可持续展示「同步中」，并彻底消除 `useBusyAction` 25s 提前报错与长 CLI 探测阻塞。
 
 ## 3. 测试锚点

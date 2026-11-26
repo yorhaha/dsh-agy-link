@@ -1,7 +1,7 @@
 <h1 align="center">🛰️ dsh-agy-link</h1>
 
 <p align="center">
-  <b>DeepSeek Harness × Google Antigravity</b> — multi-account pooling and native <code>agy</code> CLI / ACP bridge for DSH
+  <b>DeepSeek Harness × Google Antigravity</b> — native <code>agy</code> CLI / ACP bridge for DSH
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 ---
 
-Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the official, unmodified `agy` CLI: streaming, thinking, native tool cards, Generative UI embeds, 1M context metering, in-GUI OAuth, per-family multi-account pooling with failover, CLI-first multi-bucket quota tracking, and multimodal attachments.
+Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the official, unmodified `agy` CLI: streaming, thinking, native tool cards, Generative UI embeds, 1M context metering, in-GUI OAuth, per-family quota cooldowns with self-healing, CLI-first multi-bucket quota tracking, and multimodal attachments.
 
 <p align="center">
   <img src="./assets/console.png" alt="Antigravity console" width="760" />
@@ -44,7 +44,7 @@ Bring **Google Antigravity models into DeepSeek Harness (DSH)** through the offi
 
 | | |
 | --- | --- |
-| 🤖 **Models & 4-tab console** | Syncs the `agy` lineup (incl. `Gemini 4 Carbon`, `Orchestrator`), allow-list (`selectedModels`), `poolWideCatalog` routing, `--effort` refusal learning, Planner/Executor overrides. |
+| 🤖 **Models & 4-tab console** | Syncs the `agy` lineup (incl. `Gemini 4 Carbon`, `Orchestrator`), allow-list (`selectedModels`), `--effort` refusal learning, Planner/Executor overrides. |
 | 🔁 **Per-family pool** | Independent pins and cooldowns across `Gemini`/`Argon`/`Claude`/`GPT-OSS`; sequential drain or round-robin with quota-expiry-first rotation, isolated HOME + proxy, Windows identity-leased slots. |
 | 📊 **CLI-first quota** | Prefers `agy -p /usage` (`quotaViaCli`) with summary fallback; 5h / 7d / Argon weekly buckets; defers background refresh during active turns. |
 | 🛡️ **Permissions, sandbox & ACP** | `skip` / `auto` / `accept-edits` / `plan` (`/aplan` read-only) + `--sandbox`; default persistent `agy acp` pool with pre-stream `cli` fallback; MCP step-scoped routing. |

@@ -74,9 +74,9 @@ export async function getJson<T = any>(path: string): Promise<T | null> {
 	}
 }
 
-/** Small typed endpoint helper for the account-pool actions. */
-export function postPool(action: string, body: Record<string, unknown> = {}, timeoutMs?: number): Promise<any> {
-	return postJson(`${PLUGIN_BASE}/pool/${action}`, body, timeoutMs ?? WRITE_TIMEOUT_MS);
+/** Small typed endpoint helper for the single-account actions. */
+export function postAccount(action: string, body: Record<string, unknown> = {}, timeoutMs?: number): Promise<any> {
+	return postJson(`${PLUGIN_BASE}/account/${action}`, body, timeoutMs ?? WRITE_TIMEOUT_MS);
 }
 
 /** The shared config-write helper (same /config endpoint the toggles use). */

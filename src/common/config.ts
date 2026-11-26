@@ -173,7 +173,6 @@ export function resolveConfig(
     proxyUrl: asString(get('proxyUrl')) ?? base.proxyUrl,
     suppressAgyAutoUpdate: asBool(get('suppressAgyAutoUpdate')) ?? base.suppressAgyAutoUpdate,
     showHeaderBadge: asBool(get('showHeaderBadge')) ?? base.showHeaderBadge,
-    poolWideCatalog: asBool(get('poolWideCatalog')) ?? base.poolWideCatalog,
     backgroundWakeup: asBool(get('backgroundWakeup')) ?? base.backgroundWakeup,
     backgroundWakeupTtlMinutes: asNum(get('backgroundWakeupTtlMinutes')) ?? base.backgroundWakeupTtlMinutes,
     backgroundWakeupMaxPerSession: asNum(get('backgroundWakeupMaxPerSession')) ?? base.backgroundWakeupMaxPerSession,
@@ -298,10 +297,6 @@ export function resolveConfig(
   if (env.DSH_AGY_SHOW_HEADER_BADGE !== undefined) {
     const shb = asBool(env.DSH_AGY_SHOW_HEADER_BADGE)
     if (shb !== undefined) cfg.showHeaderBadge = shb
-  }
-  if (env.DSH_AGY_POOL_WIDE_CATALOG !== undefined) {
-    const pwc = asBool(env.DSH_AGY_POOL_WIDE_CATALOG)
-    if (pwc !== undefined) cfg.poolWideCatalog = pwc
   }
   if (env.DSH_AGY_CLOAK_SYSTEM_PROMPT !== undefined) {
     const csp = asBool(env.DSH_AGY_CLOAK_SYSTEM_PROMPT)

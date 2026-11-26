@@ -219,7 +219,7 @@ function unavailableError(pool: AccountPoolManager, family: ModelFamily, model?:
   }
   const waitStr = countdown !== null && countdown > 0 ? ` (earliest reset in ${Math.ceil(countdown / 1000)}s)` : ''
   const hint = modelUnsupported > 0 && unsupported === 0 && quotaBlocked === 0 && cooling === 0
-    ? `Requested model "${model ?? ''}" is not in the account's catalog — refresh the model list (POST /plugins/agy-link/refresh-quota) or pick a listed model. It is NOT a missing ${family} plan.`
+    ? `Requested model "${model ?? ''}" is not in the account's catalog — refresh the model list (POST /plugins/agy-link/account/refresh-quota) or pick a listed model. It is NOT a missing ${family} plan.`
     : unsupported > 0 && quotaBlocked === 0 && cooling === 0
       ? `This account's plan has no ${family} access enabled.`
     : quotaBlocked > 0 && cooling === 0

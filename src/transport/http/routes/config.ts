@@ -79,7 +79,7 @@ function handleConfig(services: HostServices, req: unknown, res: unknown): void 
           'defaultModel', 'defaultEffort',
           'orchestratorPlannerModel', 'orchestratorPlannerEffort', 'orchestratorExecutorModel', 'orchestratorExecutorEffort',
           'askTool', 'workspaceRoot', 'hiddenModels',
-          'showHeaderBadge', 'poolWideCatalog', 'selectedModels',
+          'showHeaderBadge', 'selectedModels',
           'quotaPollIntervalMs',
         ]
         if (!allowed.includes(key)) {
@@ -94,12 +94,10 @@ function handleConfig(services: HostServices, req: unknown, res: unknown): void 
         setOverride(key, body.value)
         onConfigWritten(key, body.value)
         // Both keys change the model set DSH's picker must display:
-        // `hiddenModels`/`selectedModels` change visibility, `poolWideCatalog`
-        // switches between the active account's catalog and the pool-wide union
-        // (issue #107/#108). Without this event the cached picker keeps the old
-        // list until a restart, so ticking a checkbox looked like "it did
-        // nothing".
-        if (key === 'hiddenModels' || key === 'selectedModels' || key === 'poolWideCatalog' || key === 'enabled') {
+        // `hiddenModels`/`selectedModels` change visibility. Without this event
+        // the cached picker keeps the old list until a restart, so ticking a
+        // checkbox looked like "it did nothing" (issue #108).
+        if (key === 'hiddenModels' || key === 'selectedModels' || key === 'enabled') {
           notifyPicker()
         }
         sendJson(res as RawRes, 200, { ok: true, key, value: body.value })

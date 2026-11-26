@@ -59,7 +59,7 @@ test('console dictionary keys exist in every shipped language', () => {
     'config.defaultEffort', 'config.defaultEffortDesc',
     'effort.auto', 'effort.low', 'effort.medium', 'effort.high',
     'config.showHeaderBadge', 'config.showHeaderBadgeDesc',
-    'config.poolWideCatalog', 'config.poolWideCatalogDesc',
+    'account.heading',
   ];
   for (const [lang, dict] of Object.entries(languages)) {
     for (const key of required) {

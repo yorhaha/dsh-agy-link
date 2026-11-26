@@ -15,11 +15,7 @@ import { createSessionStatus } from '../src/client/sections/SessionStatus.ts'
 import { agyModalStore, modalHostManager } from '../src/client/ui/Modal.ts'
 
 const noopHandlers = {
-  moveAccount: async () => {},
-  setActiveAccount: async () => {},
   beginReauth: async () => {},
-  removeAccount: async () => {},
-  toggleAccountEnabled: async () => {},
   refreshQuota: async () => {},
   saveProxy: async () => {},
   saveAlias: async () => {},
@@ -68,7 +64,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     setEditingAliasId: () => {},
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveByFamily: {},
     handlers: noopHandlers,
   }))
 
@@ -77,7 +72,7 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
   assert.equal(tree.includes('#f59e0b') && !tree.includes('rgba(245, 158, 11'), false)
   assert.ok(tree.includes('status.cooldown'), 'cooling family renders unified cooldown badge')
   assert.ok(tree.includes('account.clearCooldown'), 'cooling family exposes clear-cooldown action')
-  assert.ok(tree.includes('account.setActive'), 'healthy Argon family still exposes per-family setActive')
+  assert.equal(tree.includes('account.setActive'), false, 'the per-family pin died with the pool')
   assert.equal(tree.includes('status.quotaLimited'), false, 'redundant account-level quotaLimited badge removed')
   assert.equal(tree.includes('account.cooldown'), false, 'redundant account-level cooldown banner removed')
   assert.equal(tree.includes('"AGY"'), false, 'redundant static [AGY] badge removed')
@@ -108,7 +103,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     setEditingAliasId: () => {},
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveByFamily: {},
     handlers: noopHandlers,
   }))
   assert.ok(fullTree.includes('#f59e0b'), 'account where ALL known families are cooling renders amber dot')
@@ -116,8 +110,6 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
 
   const barTree = JSON.stringify(renderFamilyQuotaBar(t, 'Gemini', 'google', benchedAcc as never, false, {
     isActive: false,
-    canSetActive: true,
-    onSetActive: () => {},
     onClearCooldown: () => {},
   }))
   assert.ok(barTree.includes('status.cooldown'), 'cooling family header displays status.cooldown')
@@ -146,12 +138,11 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
     setEditingAliasId: () => {},
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveByFamily: {},
     handlers: noopHandlers,
   }))
   assert.ok(clearedTree.includes('#10b981'), 'cleared quota gate restores green dot')
   assert.equal(clearedTree.includes('status.cooldown'), false)
-  assert.ok(clearedTree.includes('account.setActive'), 'setActive returns once quota gate is cleared')
+  assert.equal(clearedTree.includes('account.setActive'), false, 'no pin control comes back after the gate clears')
 })
 
 test('SessionStatus turns amber when google/all accounts are cooling, and stays green if only non-google cools', () => {

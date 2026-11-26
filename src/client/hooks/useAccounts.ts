@@ -1,17 +1,17 @@
-// Account-pool action handlers. All writes go through the existing /pool/*
-// endpoints; busy state stays per-action so one action never disables every
-// control on the panel (see test/busy-scoping.test.ts).
+// Single-account action handlers. All writes go through `/account/*`; busy
+// state stays per-action so one action never disables every control on the
+// panel (see test/busy-scoping.test.ts).
+//
+// The account is the system `agy` sign-in, so there is nothing to add, remove,
+// reorder, enable/disable or pin: what remains is quota refresh, cooldown
+// reset, and the two labels that describe that one credential (alias, proxy).
 
-import type { ManagedAccount } from '../../common/pool-types.ts';
+import { postAccount } from '../api.ts';
 import type { QuotaFamily } from '../../common/quota-bench.ts';
-import { postPool } from '../api.ts';
-import type { StatusPayload } from '../status.ts';
 import type { ShowToast } from '../ui/Toast.ts';
 import type { Translator } from './useTranslation.ts';
-import { accountDisplayAlias, type AliasTranslator } from '../sections/account-alias.ts';
 
-export interface AccountsDeps {
-	status: StatusPayload | null;
+export interface AccountActionsDeps {
 	refresh: () => Promise<void>;
 	showToast: ShowToast;
 	setLoadingAction: (value: string | null) => void;
@@ -20,172 +20,43 @@ export interface AccountsDeps {
 	setEditingProxyId: (id: string | null) => void;
 	aliasInputs: Record<string, string>;
 	setEditingAliasId: (id: string | null) => void;
-	setOptimisticActiveByFamily: (updater: (prev: Partial<Record<QuotaFamily, string>>) => Partial<Record<QuotaFamily, string>>) => void;
 }
 
 export interface AccountActions {
-	reorderAccounts: (newIds: string[]) => Promise<void>;
-	moveAccount: (accId: string, delta: number) => Promise<void>;
-	setActiveAccount: (id: string, family?: QuotaFamily) => Promise<void>;
-	removeAccount: (id: string, alias: string) => Promise<void>;
-	toggleAccountEnabled: (acc: ManagedAccount) => Promise<void>;
-	refreshQuota: (id?: string) => Promise<void>;
+	refreshQuota: () => Promise<void>;
 	saveProxy: (id: string) => Promise<void>;
 	saveAlias: (id: string) => Promise<void>;
 	clearCooldown: (id?: string, family?: QuotaFamily) => Promise<void>;
 }
 
-export function useAccounts(deps: AccountsDeps): AccountActions {
+export function useAccounts(deps: AccountActionsDeps): AccountActions {
 	const actionFailed = (): void => {
 		deps.showToast(deps.t('api.genericError'), 'error');
 	};
 	return {
-		...reorderActions(deps, actionFailed),
-		...lifecycleActions(deps, actionFailed),
 		...quotaActions(deps, actionFailed),
+		...labelActions(deps, actionFailed),
 	};
-}
-
-function reorderActions(
-	deps: AccountsDeps,
-	actionFailed: () => void,
-): Pick<AccountActions, 'reorderAccounts' | 'moveAccount'> {
-	const { status, refresh, showToast, setLoadingAction, t } = deps;
-
-	const reorderAccounts = async (newIds: string[]): Promise<void> => {
-		setLoadingAction('pool:reorder');
-		const res = await postPool('reorder', { ids: newIds });
-		setLoadingAction(null);
-		if (res && res.ok) {
-			await refresh();
-			showToast(t('account.reordered'), 'success');
-		} else {
-			actionFailed();
-		}
-	};
-
-	const moveAccount = async (accId: string, delta: number): Promise<void> => {
-		const ids = (status?.pool?.accounts ?? []).map((a) => a.id);
-		const idx = ids.indexOf(accId);
-		if (idx === -1) return;
-		const newIdx = idx + delta;
-		if (newIdx < 0 || newIdx >= ids.length) return;
-		const [moved] = ids.splice(idx, 1);
-		if (moved) ids.splice(newIdx, 0, moved);
-		await reorderAccounts(ids);
-	};
-
-	return { reorderAccounts, moveAccount };
-}
-
-function lifecycleActions(
-	deps: AccountsDeps,
-	actionFailed: () => void,
-): Pick<AccountActions, 'setActiveAccount' | 'removeAccount' | 'toggleAccountEnabled' | 'saveAlias'> {
-	const { refresh, showToast, setLoadingAction, t, setOptimisticActiveByFamily, aliasInputs, setEditingAliasId } = deps;
-
-	const saveAlias = async (id: string): Promise<void> => {
-		const alias = (aliasInputs[id] ?? '').trim();
-		if (alias === '') {
-			// An empty label would leave the card nameless; keep the editor open.
-			showToast(t('account.renameEmpty'), 'error');
-			return;
-		}
-		setLoadingAction(`alias:${id}`);
-		try {
-			const res = await postPool('alias', { id, alias });
-			if (res === null || res?.ok === false) {
-				actionFailed();
-				return;
-			}
-			await refresh();
-			setEditingAliasId(null);
-			showToast(t('account.renamed'), 'success');
-		} finally {
-			setLoadingAction(null);
-		}
-	};
-
-	const setActiveAccount = async (id: string, family: QuotaFamily = 'google'): Promise<void> => {
-		setOptimisticActiveByFamily((prev) => ({ ...prev, [family]: id }));
-		setLoadingAction(`active:${id}:${family}`);
-		const clearOpt = () => {
-			setOptimisticActiveByFamily((prev) => {
-				if (prev[family] !== id) return prev;
-				const next = { ...prev };
-				delete next[family];
-				return next;
-			});
-		};
-		try {
-			const res = await postPool('set-active', { id, family });
-			if (res && res.ok) {
-				await refresh();
-				showToast(t('account.activeSet'), 'success');
-			} else {
-				clearOpt();
-				showToast(res?.error || t('account.activeSetFailed'), 'error');
-			}
-		} catch {
-			clearOpt();
-			showToast(t('account.activeSetFailed'), 'error');
-		} finally {
-			clearOpt();
-			setLoadingAction(null);
-		}
-	};
-
-	const removeAccount = async (id: string, alias: string): Promise<void> => {
-		setLoadingAction(`remove:${id}`);
-		const res = await postPool('remove', { id });
-		if (res === null || res?.ok === false) {
-			setLoadingAction(null);
-			actionFailed();
-			return;
-		}
-		await refresh();
-		setLoadingAction(null);
-		showToast(t('account.removed', { alias }), 'info');
-	};
-
-	const toggleAccountEnabled = async (acc: ManagedAccount): Promise<void> => {
-		const nextState = !acc.enabled;
-		setLoadingAction(`enable:${acc.id}`);
-		const res = await postPool('enable', { id: acc.id, enabled: nextState });
-		if (res === null || res?.ok === false) {
-			setLoadingAction(null);
-			actionFailed();
-			return;
-		}
-		await refresh();
-		setLoadingAction(null);
-		const accounts = deps.status?.pool?.accounts ?? [];
-		const displayAlias = accountDisplayAlias(deps.t as unknown as AliasTranslator, acc, accounts.indexOf(acc));
-		showToast(t(nextState ? 'account.enabledToast' : 'account.disabledToast', { alias: displayAlias }), 'success');
-	};
-
-	return { setActiveAccount, removeAccount, toggleAccountEnabled, saveAlias };
 }
 
 function quotaActions(
-	deps: AccountsDeps,
+	deps: AccountActionsDeps,
 	actionFailed: () => void,
-): Pick<AccountActions, 'refreshQuota' | 'saveProxy' | 'clearCooldown'> {
-	const { refresh, showToast, setLoadingAction, t, proxyInputs, setEditingProxyId } = deps;
+): Pick<AccountActions, 'refreshQuota' | 'clearCooldown'> {
+	const { refresh, showToast, setLoadingAction, t } = deps;
 
-
-	const refreshQuota = async (id?: string): Promise<void> => {
-		setLoadingAction(id ? `refresh:${id}` : 'refresh:all');
+	const refreshQuota = async (): Promise<void> => {
+		setLoadingAction('refresh:all');
 		try {
-			const res = await postPool('refresh-quota', { id });
+			const res = await postAccount('refresh-quota', {});
 			if (res === null || res?.ok === false) {
 				actionFailed();
 				return;
 			}
 			await refresh();
-			// The host answers `alreadyRunning` when this key was still in flight.
+			// The host answers `alreadyRunning` when a refresh was still in flight.
 			// Saying "已开始刷新" then was a lie: the click did nothing for up to
-			// QUOTA_REFRESH_DEDUP_MS, which is why a slow pool looked stuck.
+			// QUOTA_REFRESH_DEDUP_MS, which is why a slow refresh looked stuck.
 			if (res?.alreadyRunning === true) {
 				showToast(t('quota.refreshInProgress'), 'info');
 				return;
@@ -200,10 +71,32 @@ function quotaActions(
 		}
 	};
 
+	const clearCooldown = async (id?: string, family?: QuotaFamily): Promise<void> => {
+		setLoadingAction(`clearCooldown:${id ?? 'all'}:${family ?? 'all'}`);
+		const res = await postAccount('clear-cooldown', family ? { family } : {});
+		if (res === null || res?.ok === false) {
+			setLoadingAction(null);
+			actionFailed();
+			return;
+		}
+		await refresh();
+		setLoadingAction(null);
+		showToast(t('account.clearCooldownDone'), 'success');
+	};
+
+	return { refreshQuota, clearCooldown };
+}
+
+function labelActions(
+	deps: AccountActionsDeps,
+	actionFailed: () => void,
+): Pick<AccountActions, 'saveProxy' | 'saveAlias'> {
+	const { refresh, showToast, setLoadingAction, t, proxyInputs, setEditingProxyId, aliasInputs, setEditingAliasId } = deps;
+
 	const saveProxy = async (id: string): Promise<void> => {
 		setLoadingAction(`proxy:${id}`);
-		const proxyUrl = proxyInputs[id];
-		const res = await postPool('proxy', { id, proxyUrl });
+		const proxyUrl = (proxyInputs[id] ?? '').trim();
+		const res = await postAccount('proxy', { proxyUrl });
 		if (res === null || res?.ok === false) {
 			setLoadingAction(null);
 			actionFailed();
@@ -215,21 +108,27 @@ function quotaActions(
 		showToast(t('proxy.saved'), 'success');
 	};
 
-	const clearCooldown = async (id?: string, family?: QuotaFamily): Promise<void> => {
-		setLoadingAction(`clearCooldown:${id ?? 'all'}:${family ?? 'all'}`);
-		const res = await postPool('clear-cooldown', {
-			...(id ? { id } : {}),
-			...(family ? { family } : {}),
-		});
-		if (res === null || res?.ok === false) {
-			setLoadingAction(null);
-			actionFailed();
+	const saveAlias = async (id: string): Promise<void> => {
+		const alias = (aliasInputs[id] ?? '').trim();
+		if (alias === '') {
+			// An empty label would leave the card nameless; keep the editor open.
+			showToast(t('account.renameEmpty'), 'error');
 			return;
 		}
-		await refresh();
-		setLoadingAction(null);
-		showToast(t('account.clearCooldownDone'), 'success');
+		setLoadingAction(`alias:${id}`);
+		try {
+			const res = await postAccount('alias', { alias });
+			if (res === null || res?.ok === false) {
+				actionFailed();
+				return;
+			}
+			await refresh();
+			setEditingAliasId(null);
+			showToast(t('account.renamed'), 'success');
+		} finally {
+			setLoadingAction(null);
+		}
 	};
 
-	return { refreshQuota, saveProxy, clearCooldown };
+	return { saveProxy, saveAlias };
 }

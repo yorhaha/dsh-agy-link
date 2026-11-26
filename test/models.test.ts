@@ -585,11 +585,11 @@ test('getModelsForAccount returns exact models for that specific account without
 })
 
 // ---------------------------------------------------------------------------
-// Issue #107: opt-in pool-wide catalog so model-aware account routing is usable
-// from the picker (default stays strict single-account isolation).
+// The picker stays strictly scoped to the ONE account the plugin drives, even
+// when a legacy pool.json still carries a second row.
 // ---------------------------------------------------------------------------
 
-async function poolWideDeps(poolWideCatalog: boolean): Promise<ModelResolutionDeps> {
+async function accountDeps(): Promise<ModelResolutionDeps> {
   const primary = { id: 'acc_primary', alias: 'Primary', dir: '/tmp/primary', enabled: true, createdAt: 0 } as never
   const secondary = { id: 'acc_secondary', alias: 'Secondary', dir: '/tmp/secondary', enabled: true, createdAt: 0 } as never
   const pool = {
@@ -612,45 +612,40 @@ async function poolWideDeps(poolWideCatalog: boolean): Promise<ModelResolutionDe
   return {
     catalog,
     pool,
-    getConfig: () => ({ ...defaultConfig(), poolWideCatalog } as PluginConfig),
+    getConfig: () => defaultConfig(),
     isEffortUnsupported: () => false,
     warnOnce: () => undefined,
   }
 }
 
-test('issue #107: poolWideCatalog exposes the pool-wide union; default stays isolated', async () => {
-  const narrow = listAvailableModels(await poolWideDeps(false)).map((m) => m.id)
-  assert.ok(narrow.includes('gemini-4-argon'), 'primary owns Argon')
-  assert.equal(narrow.includes('claude-sonnet-4-6'), false, 'default hides another account’s models')
-
-  const wide = listAvailableModels(await poolWideDeps(true)).map((m) => m.id)
-  assert.ok(wide.includes('gemini-4-argon'))
-  assert.ok(wide.includes('claude-sonnet-4-6'), 'union surfaces the other account’s model for model-aware routing')
-  assert.ok(wide.includes('claude-sonnet-5-5'))
+test('the picker only ever lists the primary account catalog', async () => {
+  const ids = listAvailableModels(await accountDeps()).map((m) => m.id)
+  assert.ok(ids.includes('gemini-4-argon'), 'the primary owns Argon')
+  assert.ok(ids.includes('claude-sonnet-5-5'))
+  assert.equal(ids.includes('claude-sonnet-4-6'), false, 'a second stored row must never leak into the picker')
 })
 
 test('issue #131: selectedModels whitelists the picker, and an empty selection shows everything', async () => {
-  const base = await poolWideDeps(true)
+  const base = await accountDeps()
   const withSelection = (ids: string[]): ModelResolutionDeps => ({
     ...base,
-    getConfig: () => ({ ...defaultConfig(), poolWideCatalog: true, selectedModels: ids } as PluginConfig),
+    getConfig: () => ({ ...defaultConfig(), selectedModels: ids } as PluginConfig),
   })
 
   const all = listAvailableModels(withSelection([])).map((m) => m.id)
-  assert.ok(all.length > 3, 'an empty whitelist must not restrict the picker')
+  assert.ok(all.length >= 3, 'an empty whitelist must not restrict the picker')
   assert.deepEqual(listAvailableModels(withSelection(['  '])).map((m) => m.id), all, 'blank ids are ignored, not treated as a match')
 
-  const picked = listAvailableModels(withSelection(['gemini-3.8-flash', ' claude-sonnet-4-6 '])).map((m) => m.id)
-  assert.deepEqual(picked.sort(), ['claude-sonnet-4-6', 'gemini-3.8-flash'], 'trimmed ids survive and everything else is dropped')
+  const picked = listAvailableModels(withSelection(['gemini-3.8-flash', ' claude-sonnet-5-5 '])).map((m) => m.id)
+  assert.deepEqual(picked.sort(), ['claude-sonnet-5-5', 'gemini-3.8-flash'], 'trimmed ids survive and everything else is dropped')
 })
 
 test('issue #131: hiddenModels still wins over selectedModels', async () => {
-  const base = await poolWideDeps(true)
+  const base = await accountDeps()
   const deps: ModelResolutionDeps = {
     ...base,
     getConfig: () => ({
       ...defaultConfig(),
-      poolWideCatalog: true,
       selectedModels: ['gemini-3.8-flash', 'claude-sonnet-5-5'],
       hiddenModels: ['claude-sonnet-5-5'],
     } as PluginConfig),
@@ -659,10 +654,10 @@ test('issue #131: hiddenModels still wins over selectedModels', async () => {
 })
 
 test('issue #131: a deselected model still resolves for an in-flight session', async () => {
-  const base = await poolWideDeps(true)
+  const base = await accountDeps()
   const deps: ModelResolutionDeps = {
     ...base,
-    getConfig: () => ({ ...defaultConfig(), poolWideCatalog: true, selectedModels: ['gemini-3.8-flash'] } as PluginConfig),
+    getConfig: () => ({ ...defaultConfig(), selectedModels: ['gemini-3.8-flash'] } as PluginConfig),
   }
   assert.equal(listAvailableModels(deps).some((m) => m.id === 'claude-sonnet-5-5'), false)
   const resolved = resolveModelInfo(deps, 'claude-sonnet-5-5')
@@ -670,10 +665,10 @@ test('issue #131: a deselected model still resolves for an in-flight session', a
 })
 
 test('issue #131: a stale effort-variant id still selects its folded base model', async () => {
-  const base = await poolWideDeps(true)
+  const base = await accountDeps()
   const withSelection = (ids: string[]): ModelResolutionDeps => ({
     ...base,
-    getConfig: () => ({ ...defaultConfig(), poolWideCatalog: true, selectedModels: ids } as PluginConfig),
+    getConfig: () => ({ ...defaultConfig(), selectedModels: ids } as PluginConfig),
   })
 
   // The picker lists gemini-3.8-flash as one row. A selection saved while the

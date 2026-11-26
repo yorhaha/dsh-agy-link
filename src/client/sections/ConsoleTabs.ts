@@ -2,7 +2,6 @@
 // Separates high-frequency account/quota controls from model/orchestrator setup,
 // assistants, and low-frequency runtime settings.
 import type { AccountPoolData, ManagedAccount } from '../../common/pool-types.ts';
-import type { QuotaFamily } from '../../common/quota-bench.ts';
 import { modelMatches } from '../../common/pool-types.ts';
 import {
 	catalogEfforts,
@@ -16,7 +15,6 @@ import { Button } from '../ui/Button.ts';
 import { Row, rowCaption } from '../ui/Row.ts';
 import { segGroup } from '../ui/SegGroup.ts';
 import { AccountsPanel, type AccountsPanelHandlers } from './AccountsPanel.ts';
-import { renderPoolWideCatalogRow } from './CatalogRows.ts';
 import { ModelsPanel } from './ModelsPanel.ts';
 import { renderOrchestratorRows } from './OrchestratorSettingsRows.ts';
 import { RuntimeControlsSection } from './RuntimeControlsRows.ts';
@@ -48,7 +46,6 @@ export interface ConsoleTabsProps {
 	setEditingAliasId: (id: string | null) => void;
 	expandedModels: Record<string, boolean>;
 	toggleExpand: (accId: string) => void;
-	optimisticActiveByFamily: Partial<Record<QuotaFamily, string>>;
 	accountHandlers: AccountsPanelHandlers;
 	setCfg: (key: string, value: unknown) => Promise<void>;
 	setSelectedModels: (ids: ReadonlyArray<string>) => Promise<void>;
@@ -125,7 +122,7 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 	return h('div', { className: 'agy2-stack' },
 		p.addAccountSection,
 		h('div', { className: 'agy2-lede' },
-			h('span', { className: 'agy2-lede-title' }, t('account.poolHeading', { count: accounts.length })),
+			h('span', { className: 'agy2-lede-title' }, t('account.heading')),
 		),
 		h(AccountsPanel, {
 			t, pool, accounts, accountModels: p.accountModels, loadingAction,
@@ -135,7 +132,6 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 			aliasInputs: p.aliasInputs, setAliasInputs: p.setAliasInputs,
 			editingAliasId: p.editingAliasId, setEditingAliasId: p.setEditingAliasId,
 			expandedModels: p.expandedModels, toggleExpand: p.toggleExpand,
-			optimisticActiveByFamily: p.optimisticActiveByFamily,
 			handlers: p.accountHandlers,
 		}),
 	);
@@ -170,7 +166,6 @@ function renderModelsTab(p: ConsoleTabsProps): unknown {
 	const { t, status, catalogModels, hiddenModelSet, selectedModelSet, loadingAction, setCfg } = p;
 	return h('div', { className: 'agy2-stack' },
 		sectionCard('model-catalog', t('section.modelCatalog'), [
-			renderPoolWideCatalogRow({ t, status, loadingAction, setCfg }),
 			h('div', { key: 'div', style: { borderTop: '1px solid var(--agy-border-divider)', paddingTop: '8px' } },
 				h(ModelsPanel, {
 					t, catalogModels, hiddenModelSet, selectedModelSet, loadingAction,

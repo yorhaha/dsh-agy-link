@@ -113,7 +113,7 @@ test('the note reports the OLDEST family stamp, never the freshest', () => {
   assert.ok(tree.includes(stamp), `expected the oldest stamp ${stamp} in ${tree}`)
 })
 
-test('a predicted family shows the muted badge AND the pin action', () => {
+test('an active family shows the in-use badge and offers no pin', () => {
   const tree = renderToStaticMarkup(renderFamilyQuotaBar(t, 'Gemini', 'google', {
     id: 'acc_1', alias: 'a', dir: '', enabled: true, createdAt: 1, cooldowns: {},
     quotas: {
@@ -123,7 +123,8 @@ test('a predicted family shows the muted badge AND the pin action', () => {
         updatedAt: Date.now(),
       },
     },
-  } as never, false, { isActive: true, predicted: true, canSetActive: true, onSetActive: () => {} }))
-  assert.ok(tree.includes('account.predictedInUse'), 'said out loud that it is only predicted')
-  assert.ok(tree.includes('account.setActive'), 'and pinnable, so it can be made real')
+  } as never, false, { isActive: true }))
+  assert.ok(tree.includes('status.inUse'), 'the single account serves this family')
+  assert.equal(tree.includes('account.setActive'), false, 'the per-family pin died with the pool')
+  assert.equal(tree.includes('account.predictedInUse'), false, 'and so did the prediction badge')
 })

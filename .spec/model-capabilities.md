@@ -18,7 +18,7 @@
 `agy models` 在未登录或 `loadCodeAssist` 网络失败时，仍以 `exit 0` 输出内置旧版静态列表（含已下线的 `claude-sonnet-4-6` 与 `claude-opus-4-6-thinking`，且缺少 Gemini 4 系列），并在 stderr/log 打印 `Auth mode is unspecified` 或 `failed to get model config`。
 
 - `isUnauthenticatedModelsFallback(stdout, stderr)`（`src/domain/models/parse.ts`）识别此类伪发现结果，**严禁将其标为 `source: 'discovered'`**，而是记入 `lastError` 并保持 `'fallback'`，避免用假目录否决 Pro/Ultra 账号真实的 Gemini 4 Hydrogen / Argon 权限。
-- 当显式传入 `accountId` 探测单账号目录而该账号缺失、已停用或处于 `authRequired` 时，必须直接失败返回，**严禁回退借用主账号或当前活跃账号代探并将结果写入 `accountId`**；`POST /plugins/agy-link/pool/refresh-quota` 单账号同步时显式传 `catalog.forceRefresh(id)`，全量同步与选号自愈（`refreshQuota`）同步触发 `catalog.warmAccounts()`；全局 `forceRefresh()` 发现成功时同步将结果归属写入实际被探测的 `probedAccount.id` 账号目录，防止全局目录已列出模型而该账号 `accountCatalogs` 仍为空。
+- 当显式传入 `accountId` 探测单账号目录而该账号缺失、已停用或处于 `authRequired` 时，必须直接失败返回，**严禁回退借用主账号或当前活跃账号代探并将结果写入 `accountId`**；`POST /plugins/agy-link/account/refresh-quota` 刷新时显式传 `catalog.forceRefresh(id)`，全量同步与选号自愈（`refreshQuota`）同步触发 `catalog.warmAccounts()`；全局 `forceRefresh()` 发现成功时同步将结果归属写入实际被探测的 `probedAccount.id` 账号目录，防止全局目录已列出模型而该账号 `accountCatalogs` 仍为空。
 - **CLI 虚拟编排模型（`gemini-pro-orchestrator-neon` / `gemini-pro-orchestrator` / `gemini-pro-orchestrator-argon` / `gemini-pro-orchestrator-g1-pro`）与 `-xhigh`/`-tiered-*` 后缀兼容**：Google REST 配额接口（`fetchAvailableModels`）只返回底层模型（`gemini-4-neon-*`、`gemini-4-carbon-*`、`gemini-4-argon-*`）而不包含 CLI 编排 slug；`accountSupportsModel()` 在单账号目录尚未预热或陈旧时，允许分别凭 `gemini-4-neon`、`gemini-4-carbon` 配额证据与 `accountHasArgon` 判定可用性，避免 Pro/Ultra 账号误报 `lack model "gemini-pro-orchestrator*"`。
 - **持久化磁盘缓存（`<stateDir>/model-catalog.json`）**：`ModelCatalog` 将已发现的全局与分账号目录连同 `agyVersion` 与 `discoveredAt` 原子落盘；宿主冷启动时 0ms 同步水合真实模型列表（若 `agy --version` 升级则自动失效重探），`warmAccounts()` 自动跳过仍在 `ttlMs` 有效期内的已缓存账号并在剩余未缓存探测间保持随机错峰抖动。
 - Windows 下对隔离辅账号执行 `agy models` 时必须受 `acquireCredentialSlot` 保护，防止读取到系统槽内主账号的模型清单张冠李戴（issue #108/#109）。
@@ -45,17 +45,16 @@ DSH 前端 `ModelCatalogDirectory.load()` 在首次加载（`status === 'ready'`
 
 ### 4.2 单一事件源与全路径覆盖（0 遗漏、0 重复 spawn）
 1. **按账号独立 single-flight 刷新**：`ModelCatalog` 使用 `Map<accountKey, Promise<void>>` 替代全局单一 `refreshing` 锁，确保账号 A 的慢探测绝不吞掉切到账号 B 时的目录刷新；变更检测同时比对 `id`、`name` 与 `efforts`。
-2. **收口于 `pool.onAccountSwitch`**：
-   - `setActiveAccount`、`setPrimaryAccount`、`reorderAccounts`、`advanceAccount`、`PoolAdmin.recordFailure`（429 自动切号）、`selectAccount`（含首次从 `undefined` 选定活跃号）、`deleteAccount`、`setAccountEnabled`、`clearCooldown` 凡引起有效活跃账号变化，统一触发一次 `onAccountSwitch`（立即 `notifyPicker()` 切换已有缓存视图 + 异步 `forceRefreshAndNotify(newId)` 补齐最新目录），HTTP 路由层不再重复调用第二次 `forceRefreshAndNotify`。
+2. **收口于一次 `notifyPicker()`**：
+   - 插件只驱动一个账号，因此不再存在切号钩子（`onAccountSwitch` 已随账号池移除）。目录刷新由 OAuth 完成、refresh-token 导入、`clearCooldown` 与手动刷新触发一次 `forceRefreshAndNotify()`，HTTP 路由层不重复调用第二次。
    - **OAuth 登录 / 重登 / 导入必刷新**：`PoolAuthFlow.finishWithCode`（全部三个分支：新账号、重认证、主账号）与 `importRefreshToken` 完成后均触发目录刷新与 `notifyPicker()`。
-   - **配置与 CLI 命令同步**：`/config` 修改影响可见模型集合的键（`hiddenModels`、`poolWideCatalog`、`enabled`，其中 `enabled` 通过 `AdapterRegistrationHandle.replace()` 动态挂载/卸载路由）以及 `/agy` 账号管理子命令（含 `/agy use <id>`、`/agy effort`）均同步调用 `notifyPicker()`；不影响 `listModels()` 列表集合的键（如 `defaultEffort`、`translateModel`）保持静默（遵循 `test/http-contract.test.ts` 与 `test/lifecycle.test.ts` 契约）。
+   - **配置与 CLI 命令同步**：`/config` 修改影响可见模型集合的键（`hiddenModels`、`selectedModels`、`enabled`，其中 `enabled` 通过 `AdapterRegistrationHandle.replace()` 动态挂载/卸载路由）以及 `/agy refresh-quota` 等命令均同步调用 `notifyPicker()`；不影响 `listModels()` 列表集合的键（如 `defaultEffort`、`translateModel`）保持静默（遵循 `test/http-contract.test.ts` 与 `test/lifecycle.test.ts` 契约）。
 
-### 4.3 按模型族作用域与手动切号优先于同族旧会话粘性（`manualPinAtByFamily`）
-- 账号池活跃指针、冷却与预热严格按**模型族**（`google` Gemini / `argon` Argon / `anthropic` Claude / `openai` GPT-OSS）隔离：
-  - `setActiveAccount(id, family)`、`markAccountActive(id, family)`、`advanceAccount`、`selectAccount` 与 `/pool/set-active` 默认严格按模型族作用域隔离，不越界覆写其他模型族的当前账号；`/agy use <id> [family]` 支持指定模型族（默认 `google`）。
-  - **共享组双向联动例外（`argonSharesGoogleGroup(acc)`）**：当 `acc.quotas?.argon` 缺省且 `acc.quotas?.google?.description` 显式列名 Argon（`agy 1.5.15+` 折叠进 `Gemini Models` 组）时，该账号上的 `google` ↔ `argon` 活跃指针、`manualPinAtByFamily`、冷却与 `stickyAccount` 双向同步（除非 `activeAccountIds.argon` 当前指向一个拥有独立 `quotas.argon` 的账号）；拥有独立 `quotas.argon` 的账号仍严格保持按族隔离。
-  - `recordFailure()` / `advanceAccount()` / `updateAccountQuotas()` 对主动指针的轮换或自愈均按模型族边界校验（`lastActiveAccountId` 仅服务 `google` 族兜底，绝不跨族劫持 `argon` / `anthropic` / `openai`）。
-  - `getPoolData().resolvedActiveAccountIds` 预计算每个模型族当前真正命中的可用账号 ID，UI 将「当前使用」「设为当前」「冷却中」「清除冷却」直接嵌入对应模型族分组内，消除账号级冗余状态标签与横幅。
+### 4.3 按模型族作用域的冷却（共享组例外）
+- 插件只驱动一个账号，因此不存在活跃指针、手动置顶或轮换；冷却与预热仍严格按**模型族**（`google` Gemini / `argon` Argon / `anthropic` Claude / `openai` GPT-OSS）隔离。
+  - **共享组双向联动例外（`argonSharesGoogleGroup(acc)`）**：当 `acc.quotas?.argon` 缺省且 `acc.quotas?.google?.description` 显式列名 Argon（`agy 1.5.15+` 折叠进 `Gemini Models` 组）时，该账号上的 `google` ↔ `argon` 冷却双向同步；拥有独立 `quotas.argon` 的账号仍严格保持按族隔离。
+  - `recordFailure()` / `updateAccountQuotas()` 对冷却的自愈同样按模型族边界校验，绝不跨族劫持 `argon` / `anthropic` / `openai`。
+  - UI 将「当前使用」「冷却中」「清除冷却」直接嵌入对应模型族分组内，不存在账号级「设为当前」控件（单账号无需置顶）。
 - `selectSessionAccount()` 中：
   - `stickyAccount()` 仅在会话上次绑定模型属于同一 `modelFamilyOf(b.model)` 时复用同族粘性账号（例如会话 A 选 `gemini-pro-orchestrator-neon` 在 `google` 池内轮换，会话 B 选 `gemini-4-argon` 在 `argon` 池内独立轮换，互不串扰）。
   - 若用户对该模型族显式切号发生在旧会话绑定更新时间之后（`Math.max(manualPinAt, manualPinAtByFamily[family]) > binding.updatedAt`），该同族会话**立即跟随用户新选账号**，不再被旧会话亲和拉回；且 `stickyAccount` 命中旧会话亲和时**绝不反向覆写全局其他族的 `activeAccountIds`**（`lastActiveAccountId` 亦受 `family === 'google' || !lastActiveAccountId` 守卫）。
@@ -88,5 +87,5 @@ DSH 前端 `ModelCatalogDirectory.load()` 在首次加载（`status === 'ready'`
 3. **拒绝清单 `hiddenModels`**：最后应用，**永远胜出**，让运维不必修改勾选状态就能临时隐藏某个模型。
 
 - **解析（`resolveModel`）不受可见性过滤**：只有 `listModels`（选择器）过滤。用户取消勾选一个正在被会话使用的模型，该会话必须继续工作——把可见性当成可用性会打断进行中的任务。
-- 作用域：默认按**活跃账号**的配额快照合并（与它显示的 `agy models` 目录同源，避免两个来源互相矛盾）；`poolWideCatalog` 开启时按整池枚举。
+- 作用域：按**主账号**的配额快照合并（与它显示的 `agy models` 目录同源，避免两个来源互相矛盾）。
 - 锚点：`test/quota-catalog.test.ts`、`test/models-panel.test.ts`、`test/models.test.ts`、`test/config-precedence.test.ts`。

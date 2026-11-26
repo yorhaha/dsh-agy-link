@@ -14,7 +14,7 @@ import { Semaphore, findSessionLogFile, readSessionImage, resolveSessionGoal, re
 import { defaultConfig } from '../src/common/types.ts'
 import { R } from '../src/client/react.ts'
 import { agyIcon, brandIcon, uiIcon } from '../src/client/icons.ts'
-import { getJson, postConfig, postJson, postPool, win } from '../src/client/api.ts'
+import { getJson, postConfig, postJson, postAccount, win } from '../src/client/api.ts'
 import { disposeStatusPolling, ensureStatusPolling, publishStatusSnapshot, stopStatusPollingIfIdle } from '../src/client/status.ts'
 import { Button } from '../src/client/ui/Button.ts'
 import { segGroup } from '../src/client/ui/SegGroup.ts'
@@ -96,7 +96,7 @@ test('GET /plugins/agy-link/status emits ETag and responds 304 Not Modified on m
   assert.equal(res2.text, '')
 })
 
-test('POST /plugins/agy-link/pool/begin-add starts the primary re-login and complete/cancel reach the auth flow', async () => {
+test('POST /plugins/agy-link/account/begin-add starts the primary re-login and complete/cancel reach the auth flow', async () => {
   const calls: string[] = []
   const routes = new Map<string, Route['handler']>()
   const services = {
@@ -118,27 +118,27 @@ test('POST /plugins/agy-link/pool/begin-add starts the primary re-login and comp
 
   // Begin: no accountId is needed — there is only the system-HOME primary.
   const rBegin = fakeRes()
-  routes.get('/plugins/agy-link/pool/begin-add')!(fakeReq('POST', {}), rBegin)
+  routes.get('/plugins/agy-link/account/begin-add')!(fakeReq('POST', {}), rBegin)
   await rBegin.done
   assert.equal(rBegin.status, 200)
 
   // Complete without a pasted code is a 400 the console can render.
   const rMissing = fakeRes()
-  routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', {}), rMissing)
+  routes.get('/plugins/agy-link/account/complete-add')!(fakeReq('POST', {}), rMissing)
   await rMissing.done
   assert.equal(rMissing.status, 400)
   assert.equal((rMissing.json() as { code?: string }).code, 'missing_code')
 
   // Complete with a code drives the pooled auth flow.
   const rDone = fakeRes()
-  routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', { code: '4/valid-code' }), rDone)
+  routes.get('/plugins/agy-link/account/complete-add')!(fakeReq('POST', { code: '4/valid-code' }), rDone)
   await rDone.done
   assert.equal(rDone.status, 200)
   assert.equal((rDone.json() as { ok?: boolean }).ok, true)
 
   // Cancel abandons the flow.
   const rCancel = fakeRes()
-  routes.get('/plugins/agy-link/pool/cancel-add')!(fakeReq('POST', {}), rCancel)
+  routes.get('/plugins/agy-link/account/cancel-add')!(fakeReq('POST', {}), rCancel)
   await rCancel.done
   assert.equal(rCancel.status, 200)
 
@@ -199,13 +199,8 @@ test('UI primitives & AccountsPanel never pass unkeyed array literals as childre
       setEditingAliasId: () => {},
       expandedModels: {},
       toggleExpand: () => {},
-      optimisticActiveId: null,
       handlers: {
-        moveAccount: async () => {},
-        setActiveAccount: async () => {},
         beginReauth: async () => {},
-        removeAccount: async () => {},
-        toggleAccountEnabled: async () => {},
         refreshQuota: async () => {},
         saveProxy: async () => {},
         saveAlias: async () => {},
@@ -215,7 +210,7 @@ test('UI primitives & AccountsPanel never pass unkeyed array literals as childre
 
     assert.equal(arrayChildViolations.length, 0, `unexpected unkeyed array children passed to DOM elements: ${arrayChildViolations.join(', ')}`)
     assert.ok(panelTree.includes('account.reauth'), '1-click reauth button must render on authRequired card')
-    assert.equal(panelTree.includes('account.setActive'), false, 'setActive must be hidden when authRequired is true')
+    assert.equal(panelTree.includes('account.setActive'), false, 'there is no per-family pin to hide or show')
 
     const quotaTree = JSON.stringify(renderFamilyQuotaBar(t, 'Gemini', 'google', reauthAcc as never, false))
     assert.ok(quotaTree.includes('quota.timeMarkerTitle'), 'quota pacing time benchmark tick should render')
@@ -248,12 +243,7 @@ test('UI primitives & AccountsPanel never pass unkeyed array literals as childre
       setEditingAliasId: () => {},
       expandedModels: { acc_low: true },
       toggleExpand: () => {},
-      optimisticActiveId: null,
       handlers: {
-        moveAccount: async () => {},
-        setActiveAccount: async () => {},
-        removeAccount: async () => {},
-        toggleAccountEnabled: async () => {},
         refreshQuota: async () => {},
         saveProxy: async () => {},
         saveAlias: async () => {},
@@ -333,7 +323,7 @@ test('SessionStatus SSR renders quota %, colors, dormant & modal states, and sta
       const failPost = await postJson('/plugins/agy-link/config', { key: 'x', value: 1 })
       assert.equal(failPost.ok, false)
       await postConfig('showHeaderBadge', true)
-      await postPool('refresh-quota', {})
+      await postAccount('refresh-quota', {})
       await getJson('/plugins/agy-link/status')
       stopStatusPollingIfIdle()
       disposeStatusPolling()
@@ -532,11 +522,7 @@ test('AccountsPanel shows collapsed cooling hint, host-synced spinners, and expl
     vars ? `${k}:${JSON.stringify(vars)}` : k) as never
   const now = Date.now()
   const baseHandlers = {
-    moveAccount: async () => {},
-    setActiveAccount: async () => {},
     beginReauth: async () => {},
-    removeAccount: async () => {},
-    toggleAccountEnabled: async () => {},
     refreshQuota: async () => {},
     saveProxy: async () => {},
     saveAlias: async () => {},
@@ -586,7 +572,6 @@ test('AccountsPanel shows collapsed cooling hint, host-synced spinners, and expl
     setEditingAliasId: () => {},
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveByFamily: {},
     handlers: baseHandlers,
   }))
   assert.ok(treeNoExplicit.includes('account.collapsedCoolingHint'), 'collapsed card must hint when Claude/GPT-OSS is cooling')
@@ -610,7 +595,6 @@ test('AccountsPanel shows collapsed cooling hint, host-synced spinners, and expl
     setEditingAliasId: () => {},
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveByFamily: {},
     handlers: baseHandlers,
   }))
   assert.ok(treeExplicit.includes('status.proxy'), 'explicit per-account proxyUrl renders [status.proxy] pill')
@@ -662,13 +646,8 @@ test('AccountsPanel renames by clicking the label itself and always offers re-lo
     setEditingAliasId: (id: string | null) => { edited.push(id) },
     expandedModels: {},
     toggleExpand: () => {},
-    optimisticActiveId: null,
     handlers: {
-      moveAccount: async () => {},
-      setActiveAccount: async () => {},
       beginReauth: async () => {},
-      removeAccount: async () => {},
-      toggleAccountEnabled: async () => {},
       refreshQuota: async () => {},
         saveProxy: async () => {},
       saveAlias: async () => {},

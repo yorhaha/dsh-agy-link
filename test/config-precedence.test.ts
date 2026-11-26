@@ -97,15 +97,6 @@ test('showHeaderBadge defaults to true, accepts overrides and env (issue #105)',
   assert.equal(overrideWins.showHeaderBadge, true)
 })
 
-test('issue #107: poolWideCatalog is opt-in and every layer can enable it', () => {
-  assert.equal(defaultConfig().poolWideCatalog, false, 'strict single-account isolation stays the default')
-  assert.equal(resolveConfig({ poolWideCatalog: true }, {}, {}).poolWideCatalog, true)
-  assert.equal(resolveConfig({}, {}, { poolWideCatalog: true }).poolWideCatalog, true)
-  assert.equal(resolveConfig({}, { DSH_AGY_POOL_WIDE_CATALOG: 'on' }, {}).poolWideCatalog, true)
-  assert.equal(resolveConfig({ poolWideCatalog: true }, { DSH_AGY_POOL_WIDE_CATALOG: 'off' }, {}).poolWideCatalog, false, 'env wins last')
-  assert.equal(resolveConfig({}, { DSH_AGY_POOL_WIDE_CATALOG: 'garbage' }, {}).poolWideCatalog, false, 'junk keeps the default')
-})
-
 test('every DSH_AGY_* env override is honoured, and junk values never corrupt the config', () => {
   const cfg = resolveConfig({}, {
     DSH_AGY_MODE: 'plan',
@@ -135,7 +126,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_PROXY_URL: 'http://127.0.0.1:1',
     DSH_AGY_SUPPRESS_AUTOUPDATE: 'true',
     DSH_AGY_SHOW_HEADER_BADGE: 'off',
-    DSH_AGY_POOL_WIDE_CATALOG: 'true',
   }, {})
   assert.equal(cfg.permissionMode, 'skip', 'SKIP_PERMISSIONS wins over MODE')
   assert.equal(cfg.defaultModel, 'gemini-4-hydrogen')
@@ -155,7 +145,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
   assert.equal(cfg.quotaViaCli, false)
   assert.equal(cfg.suppressAgyAutoUpdate, true)
   assert.equal(cfg.showHeaderBadge, false)
-  assert.equal(cfg.poolWideCatalog, true)
 
   // The rejection branches matter just as much: a typo must leave the default
   // intact instead of writing a zero/NaN into the running config (ADR-13).
@@ -178,7 +167,6 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
     DSH_AGY_QUOTA_VIA_CLI: 'nope',
     DSH_AGY_SUPPRESS_AUTOUPDATE: 'nope',
     DSH_AGY_SHOW_HEADER_BADGE: 'nope',
-    DSH_AGY_POOL_WIDE_CATALOG: 'nope',
   }, {})
   assert.equal(junk.timeoutMs, base.timeoutMs)
   assert.equal(junk.contextWindowDefault, base.contextWindowDefault)
@@ -186,5 +174,4 @@ test('every DSH_AGY_* env override is honoured, and junk values never corrupt th
   assert.equal(junk.mcpConfigScope, base.mcpConfigScope)
   assert.equal(junk.quotaPollIntervalMs, base.quotaPollIntervalMs)
   assert.equal(junk.showHeaderBadge, true)
-  assert.equal(junk.poolWideCatalog, false)
 })

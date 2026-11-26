@@ -87,7 +87,6 @@ export interface StatusPayload {
 	/** Model ids ticked in the settings panel; empty means "show everything". */
 	selectedModels?: readonly string[];
 	showHeaderBadge?: boolean;
-	poolWideCatalog?: boolean;
 	bindings?: number;
 	/**
 	 * Host summary of the most recent run. Diagnostic only: no client surface

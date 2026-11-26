@@ -1,13 +1,13 @@
-// Account pool card list: per-account header (priority, status dot, actions,
-// email/auth/dedicated-proxy badges) and per-family quota blocks (Gemini, Argon,
-// Claude, GPT-OSS) where active selection and cooldown controls live.
+// The one account card: header (status dot, actions, email/auth/proxy badges)
+// and per-family quota blocks (Gemini, Argon, Claude, GPT-OSS) with their
+// cooldown controls.
 //
 // Rendering lives here; async actions come in as handlers from useAccounts so
 // busy scoping and host-derived progress survive modal close/reopen.
 
 import { buildAccountModelRows, type AccountModelDisplayItem } from '../../common/account-models.ts';
 import { argonSharesGoogleGroup, type AccountPlanTier, type AccountPoolData, type ManagedAccount } from '../../common/pool-types.ts';
-import { resolveFamilyActiveIds, resolveFamilyPinnedIds } from './active-account-ids.ts';
+import { resolveFamilyActiveIds } from './active-account-ids.ts';
 import { accountDisplayAlias as aliasOf, type AliasTranslator } from './account-alias.ts';
 import { resolveAccountPlanTier } from '../../common/plan-tier.ts';
 import {
@@ -31,12 +31,8 @@ import type { Translator } from '../hooks/useTranslation.ts';
 import { formatQuotaWindow, renderFamilyQuotaBar, renderQuotaUnavailableNote } from './QuotaPanel.ts';
 
 export interface AccountsPanelHandlers {
-	moveAccount: (accId: string, delta: number) => Promise<void>;
-	setActiveAccount: (id: string, family?: QuotaFamily) => Promise<void>;
 	beginReauth?: (acc: ManagedAccount) => Promise<void>;
-	removeAccount: (id: string, alias: string) => Promise<void>;
-	toggleAccountEnabled: (acc: ManagedAccount) => Promise<void>;
-	refreshQuota: (id?: string) => Promise<void>;
+	refreshQuota: () => Promise<void>;
 	saveProxy: (id: string) => Promise<void>;
 	saveAlias: (id: string) => Promise<void>;
 	clearCooldown: (id?: string, family?: QuotaFamily) => Promise<void>;
@@ -60,8 +56,6 @@ export interface AccountsPanelProps {
 	setEditingAliasId: (id: string | null) => void;
 	expandedModels: Record<string, boolean>;
 	toggleExpand: (accId: string) => void;
-	optimisticActiveId?: string | null;
-	optimisticActiveByFamily?: Partial<Record<QuotaFamily, string>>;
 	handlers: AccountsPanelHandlers;
 }
 
@@ -69,33 +63,20 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 	const {
 		t, pool, accounts, accountModels, loadingAction, quotaRefreshing = [],
 		proxyInputs, setProxyInputs, editingProxyId, setEditingProxyId, aliasInputs, setAliasInputs,
-		editingAliasId, setEditingAliasId, expandedModels, toggleExpand,
-		optimisticActiveId, optimisticActiveByFamily, handlers,
+		editingAliasId, setEditingAliasId, expandedModels, toggleExpand, handlers,
 	} = props;
 
 	const accountActionBusy = (acc: ManagedAccount, action: string): boolean =>
 		loadingAction === `${action}:${acc.id}`;
 
-	const activeIds = resolveFamilyActiveIds(pool, optimisticActiveByFamily, optimisticActiveId);
-	const pinnedIds = resolveFamilyPinnedIds(pool, optimisticActiveByFamily, optimisticActiveId);
+	const activeIds = resolveFamilyActiveIds(pool);
 	const now = Date.now();
 
 	return accounts.map((acc: ManagedAccount) => {
-		const isPrimary = acc.id === pool?.primaryAccountId;
 		const authState = accountAuthState(acc);
 		const isAuthRequired = authState !== 'healthy';
 		const isFullyCooling = isAccountFullyCooling(acc, now);
 		const isSyncing = loadingAction === `refresh:${acc.id}` || loadingAction === 'refresh:all' || quotaRefreshing.includes(acc.id);
-		// A real pin is "in use" (blue); a mere eligibility RESOLUTION is a
-		// prediction with a quieter accent. Only always-visible families count.
-		const frameFamilies = QUOTA_FAMILIES.filter((fam) =>
-			(fam === 'google' || fam === 'argon') &&
-			(fam !== 'argon' || acc.quotas.argon !== undefined) &&
-			acc.enabled && !isAuthRequired && !isFamilyCooling(acc, fam, now) &&
-			activeIds[fam] === acc.id,
-		);
-		const hasPinnedFamily = frameFamilies.some((fam) => pinnedIds[fam] === acc.id);
-		const hasPredictedFamily = !hasPinnedFamily && frameFamilies.length > 0;
 		const dotColor = !acc.enabled ? '#64748b' : authState === 'review' ? '#f59e0b' : isAuthRequired ? '#ef4444' : isFullyCooling ? '#f59e0b' : '#10b981';
 		const isEditingProxy = editingProxyId === acc.id;
 		const isEditingAlias = editingAliasId === acc.id;
@@ -107,13 +88,6 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 			cursor: 'default',
 			padding: '10px 14px',
 			marginBottom: '8px',
-			...(hasPinnedFamily ? {
-				borderColor: 'var(--dsw-alias-state-business-primary, #3b82f6)',
-				boxShadow: 'var(--agy-shadow-card-primary)',
-			} : hasPredictedFamily ? {
-				// "预计使用": a quiet violet, no glow — never mistakable for "in use".
-				borderColor: 'rgba(139, 92, 246, 0.45)',
-			} : {}),
 			...(!acc.enabled ? { opacity: 0.72 } : {}),
 		};
 		const displayAlias = accountDisplayAlias(acc, accIndex, t);
@@ -122,18 +96,9 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 		const renderQuotaBar = (label: string, familyKey: QuotaFamily): unknown => {
 			const cooling = isFamilyCooling(acc, familyKey, now);
 			const isFamActive = Boolean(acc.enabled && !isAuthRequired && !cooling && activeIds[familyKey] === acc.id);
-			const isFamPinned = Boolean(isFamActive && pinnedIds[familyKey] === acc.id);
-			const isFamPredicted = Boolean(isFamActive && !isFamPinned);
-			// A prediction must be pinnable, otherwise the account serves a family
-			// with no way to confirm it.
-			const canSetFamActive = Boolean(acc.enabled && !isAuthRequired && !cooling && !isFamPinned);
 			return renderFamilyQuotaBar(t, label, familyKey, acc, isSyncing, {
 				isActive: isFamActive,
-				predicted: isFamPredicted,
-				canSetActive: canSetFamActive,
-				settingActive: loadingAction === `active:${acc.id}:${familyKey}`,
 				clearingCooldown: loadingAction === `clearCooldown:${acc.id}:${familyKey}`,
-				onSetActive: () => void handlers.setActiveAccount(acc.id, familyKey),
 				onClearCooldown: () => void handlers.clearCooldown(acc.id, familyKey),
 			});
 		};
@@ -147,8 +112,8 @@ export function AccountsPanel(props: AccountsPanelProps): unknown {
 			style: cardStyle,
 		},
 			renderCardHeader(t, acc, {
-				isPrimary, isAuthRequired, authState, dotColor, isEditingProxy, isSyncing, isEditingAlias,
-				displayAlias, accountModelIds: accountModels?.[acc.id]?.map((m) => m.id), accIndex, accounts, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId, setEditingAliasId,
+				isAuthRequired, authState, dotColor, isEditingProxy, isSyncing, isEditingAlias,
+				displayAlias, accountModelIds: accountModels?.[acc.id]?.map((m) => m.id), pool, loadingAction, accountActionBusy, handlers, setEditingProxyId, setEditingAliasId,
 			}),
 			h('div', { key: 'agy-body', style: S.quotaBox },
 				renderQuotaUnavailableNote(t, acc),
@@ -189,7 +154,6 @@ function accountDisplayAlias(acc: ManagedAccount, accIndex: number, t: Translato
 }
 
 interface CardHeaderCtx {
-	isPrimary: boolean;
 	isAuthRequired: boolean;
 	authState: AccountAuthState;
 	dotColor: string;
@@ -198,8 +162,6 @@ interface CardHeaderCtx {
 	isSyncing: boolean;
 	displayAlias: string;
 	accountModelIds?: readonly string[];
-	accIndex: number;
-	accounts: ManagedAccount[];
 	pool: AccountPoolData | undefined;
 	loadingAction: string | null;
 	accountActionBusy: (acc: ManagedAccount, action: string) => boolean;
@@ -325,36 +287,8 @@ function renderStatusBadges(t: Translator, acc: ManagedAccount, ctx: CardHeaderC
 }
 
 function renderHeaderBadges(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx): unknown {
-	const { isPrimary, dotColor, displayAlias, accIndex, accounts, handlers, isEditingAlias, setEditingAliasId } = ctx;
+	const { dotColor, displayAlias, isEditingAlias, setEditingAliasId } = ctx;
 	return h('div', { className: 'agy-card-title-cluster', style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: 0 } },
-		h('span', {
-			style: {
-				...S.badgeTag!,
-				fontWeight: 700,
-				fontSize: '10.5px',
-				padding: '1px 5px',
-				background: isPrimary ? 'var(--agy-badge-primary-bg)' : 'var(--agy-badge-tag-bg)',
-				color: isPrimary ? 'var(--agy-badge-primary-text)' : 'var(--agy-badge-tag-text)',
-				borderColor: isPrimary ? 'var(--agy-badge-primary-border)' : 'var(--agy-badge-tag-border)',
-			},
-			title: `优先级 #${accIndex + 1}`,
-		}, `#${accIndex + 1}`),
-		accounts.length > 1 ? h('div', {
-			style: { display: 'inline-flex', gap: '2px', alignItems: 'center' },
-		},
-			accIndex > 0 ? h(Button, {
-				variant: 'default', size: 'sm', className: 'agy-btn',
-				style: { padding: '1px 4px', fontSize: '10px', lineHeight: 1, height: '18px' },
-				title: t('account.moveUp'),
-				onClick: () => void handlers.moveAccount(acc.id, -1),
-			}, uiIcon('arrowUp', 10)) : null,
-			accIndex < accounts.length - 1 ? h(Button, {
-				variant: 'default', size: 'sm', className: 'agy-btn',
-				style: { padding: '1px 4px', fontSize: '10px', lineHeight: 1, height: '18px' },
-				title: t('account.moveDown'),
-				onClick: () => void handlers.moveAccount(acc.id, 1),
-			}, uiIcon('arrowDown', 10)) : null,
-		) : null,
 		h('span', {
 			className: 'agy-pulse-dot',
 			style: { background: dotColor, boxShadow: `0 0 6px ${dotColor}aa`, marginLeft: '1px' },
@@ -409,7 +343,7 @@ function renderMetaRow(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx): 
 
 function renderCardHeader(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx): unknown {
 	const {
-		isEditingProxy, isAuthRequired, isSyncing, displayAlias, accounts, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
+		isEditingProxy, isAuthRequired, isSyncing, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
 	} = ctx;
 	return h('div', {
 		className: 'agy-card-header',
@@ -433,8 +367,8 @@ function renderCardHeader(t: Translator, acc: ManagedAccount, ctx: CardHeaderCtx
 		},
 			renderHeaderBadges(t, acc, ctx),
 			renderActionButtons(t, acc, {
-				isEditingProxy, isAuthRequired, isSyncing, displayAlias,
-				showRemove: accounts.length > 1, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
+				isEditingProxy, isAuthRequired, isSyncing,
+				pool, loadingAction, accountActionBusy, handlers, setEditingProxyId,
 			}),
 		),
 		renderMetaRow(t, acc, ctx),
@@ -445,35 +379,24 @@ function renderActionButtons(t: Translator, acc: ManagedAccount, ctx: {
 	isEditingProxy: boolean;
 	isAuthRequired: boolean;
 	isSyncing: boolean;
-	displayAlias: string;
-	showRemove: boolean;
 	pool: AccountPoolData | undefined;
 	loadingAction: string | null;
 	accountActionBusy: (acc: ManagedAccount, action: string) => boolean;
 	handlers: AccountsPanelHandlers;
 	setEditingProxyId: (id: string | null) => void;
 }): unknown {
-	const { isEditingProxy, isAuthRequired, isSyncing, displayAlias, showRemove, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId } = ctx;
+	const { isEditingProxy, isAuthRequired, isSyncing, pool, loadingAction, accountActionBusy, handlers, setEditingProxyId } = ctx;
 	const effectiveProxy = acc.proxyUrl || pool?.systemProxy;
 	return h('div', {
 		className: 'agy-card-actions',
 		style: { display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', maxWidth: '100%', flexShrink: 0 },
 	},
 		h(Button, {
-			variant: acc.enabled ? 'default' : 'primary', size: 'sm', className: 'agy-btn',
-			style: { gap: '3px', fontSize: '11px', padding: '1px 6px', height: '22px' },
-			title: acc.enabled ? t('account.disableTitle') : t('account.enableTitle'),
-			disabled: accountActionBusy(acc, 'enable'),
-			onClick: () => void handlers.toggleAccountEnabled(acc),
-		}, ...(loadingAction === `enable:${acc.id}`
-			? [Spinner(), acc.enabled ? t('account.disable') : t('account.enable')]
-			: [uiIcon('power', 10, acc.enabled ? 'var(--agy-text-secondary)' : '#ffffff'), ` ${acc.enabled ? t('account.disable') : t('account.enable')}`])),
-		h(Button, {
 			variant: 'default', size: 'sm', className: 'agy-btn',
 			style: { gap: '3px', fontSize: '11px', padding: '1px 6px', height: '22px', justifyContent: 'center' },
 			title: t('account.syncTitle'),
 			disabled: isSyncing,
-			onClick: () => void handlers.refreshQuota(acc.id),
+			onClick: () => void handlers.refreshQuota(),
 		}, ...(isSyncing ? [Spinner(), t('account.syncing')] : [uiIcon('refresh', 10), ` ${t('account.sync')}`])),
 		// Re-login is ALWAYS available (not only after an auth failure): the user
 		// may want to re-authenticate a healthy account, switch its Google
@@ -492,14 +415,6 @@ function renderActionButtons(t: Translator, acc: ManagedAccount, ctx: {
 			disabled: accountActionBusy(acc, 'proxy'),
 			onClick: () => setEditingProxyId(isEditingProxy ? null : acc.id),
 		}, uiIcon('globe', 10), ` ${t('proxy.button')}`),
-		(showRemove ? h(Button, {
-			variant: 'danger', size: 'sm', className: 'agy-btn',
-			style: { padding: '1px 6px', fontSize: '11px', height: '22px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
-			title: t('account.removeTitle'),
-			'aria-label': t('account.removeTitle'),
-			disabled: accountActionBusy(acc, 'remove'),
-			onClick: () => void handlers.removeAccount(acc.id, displayAlias),
-		}, loadingAction === `remove:${acc.id}` ? Spinner() : uiIcon('trash', 11, 'var(--agy-danger-text)')) : null),
 	);
 }
 
