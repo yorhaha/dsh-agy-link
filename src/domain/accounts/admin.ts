@@ -13,6 +13,7 @@ import {
 import { normalizeModelFamily } from '../../common/quota-bench.ts'
 import { applyModelFailure, clearModelCooldown, cooldownUntilFor, dropLegacyModelScopedFamilyCooldowns } from './model-cooldown.ts'
 import { AccountAuthFlags } from './auth-state.ts'
+import type { AuthEvidence, AuthVerdict } from './evidence.ts'
 
 /** State and capabilities AccountPoolManager lends to PoolAdmin. */
 export interface PoolAdminDeps {
@@ -81,6 +82,11 @@ export class PoolAdmin {
   /** Confirmation-gated quarantine for a non-authoritative auth banner (2 strikes). */
   noteAuthFailure(id: string, reason?: string): boolean {
     return this.authFlags.noteFailure(id, reason)
+  }
+
+  /** Single writer for quota/token observations; see evidence.deriveAuthVerdict. */
+  applyAuthEvidence(id: string, evidence: AuthEvidence): AuthVerdict {
+    return this.authFlags.applyEvidence(id, evidence)
   }
 
   /**

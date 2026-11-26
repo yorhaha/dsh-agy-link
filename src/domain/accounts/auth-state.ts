@@ -14,6 +14,7 @@ import {
   type ManagedAccount,
   type ModelFamily,
 } from '../../common/pool-types.ts'
+import { deriveAuthVerdict, type AuthEvidence, type AuthStateView, type AuthVerdict } from './evidence.ts'
 
 /** What the flag lifecycle needs from the pool it lives in. */
 export interface AuthFlagDeps {
@@ -85,6 +86,36 @@ export class AccountAuthFlags {
     delete acc.authReverifyAttempts
     this.deps.authStrikes.delete(id)
     this.deps.persist()
+  }
+
+  /**
+   * Apply one observation through the pure verdict. This is the single writer
+   * quota refresh and token refresh use; mark()/clear()/noteFailure() remain for
+   * explicit user actions and internal callers.
+   */
+  applyEvidence(id: string, evidence: AuthEvidence): AuthVerdict {
+    const acc = this.account(id)
+    if (!acc) return { action: 'none', because: 'no-account' }
+    const state: AuthStateView = {
+      authRequired: acc.authRequired === true,
+      ...(acc.authError === undefined ? {} : { authError: acc.authError }),
+      strikes: this.deps.authStrikes.get(id) ?? 0,
+    }
+    const verdict = deriveAuthVerdict(state, evidence)
+    switch (verdict.action) {
+      case 'mark':
+        this.mark(id, verdict.reason)
+        break
+      case 'strike':
+        this.deps.authStrikes.set(id, state.strikes + 1)
+        break
+      case 'clear':
+        this.clear(id)
+        break
+      default:
+        break
+    }
+    return verdict
   }
 
   /**

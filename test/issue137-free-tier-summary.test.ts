@@ -131,7 +131,7 @@ test('issue #151: fresh CLI quota data clears a stale quotaUnavailable marker', 
   const pool = {
     clearQuotaUnavailable: (id: string) => cleared.push(id),
     updateAccountQuotas: (id: string) => updated.push(id),
-    clearAuthRequired: () => {},
+    applyAuthEvidence: () => {},
     noteDedicatedGroup: () => {},
     clearQuotaFamily: () => {},
     forgetDedicatedGroup: () => {},
@@ -159,7 +159,7 @@ test('issue #151: a CLI read that yields nothing leaves the marker alone', async
   const pool = {
     clearQuotaUnavailable: (id: string) => cleared.push(id),
     updateAccountQuotas: () => {},
-    clearAuthRequired: () => {},
+    applyAuthEvidence: () => {},
   }
   const account = { id: 'acc-2', alias: 'a', dir: '', createdAt: 1, enabled: true, cooldowns: {}, quotas: {} } as never
   // Falling through to REST: no token, so the pipeline bails without touching it.

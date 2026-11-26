@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { writeFileAtomicSync } from '../../common/atomic-write.ts'
 import type { ManagedAccount } from '../../common/pool-types.ts'
 import { shouldMarkAuthRequired } from '../../common/types.ts'
+import type { AuthEvidence } from '../../domain/accounts/evidence.ts'
 import { normalizeStoredToken, type StoredToken } from '../../domain/quota/identity.ts'
 import { formatLocalIso, refreshTokens } from '../../host/oauth.ts'
 import { readWindowsCredentialRawAsync } from '../../host/wincred.ts'
@@ -39,8 +40,8 @@ export interface RefreshedTokenInput {
 /** The subset of AccountPoolManager touched by token refresh. */
 export interface QuotaTokenPool {
   readonly dir: string
-  clearAuthRequired(id: string): void
-  markAuthRequired(id: string, reason?: string): void
+  /** The pool's single auth writer; token refresh contributes observations. */
+  applyAuthEvidence(id: string, evidence: AuthEvidence): unknown
 }
 
 /**
@@ -499,9 +500,9 @@ async function getValidAccessTokenUncached(
           },
           tok.refreshToken,
         )
-        if (account.authRequired) {
-          deps.pool.clearAuthRequired(account.id)
-        }
+        // A completed refresh proves the login alive; the verdict still keeps
+        // a terminal TOS ban in place.
+        deps.pool.applyAuthEvidence(account.id, { kind: 'authenticated', at: Date.now(), source: 'token' })
         return refreshed.access_token
       }
     } catch (err: unknown) {
@@ -510,7 +511,7 @@ async function getValidAccessTokenUncached(
       // Only authoritative OAuth states flag the account; a bare 400
       // (captive portal / proxy error page) or a transport failure must not.
       if (shouldMarkAuthRequired(undefined, errMsg)) {
-        deps.pool.markAuthRequired(account.id, errMsg)
+        deps.pool.applyAuthEvidence(account.id, { kind: 'auth-failure', at: Date.now(), reason: errMsg, authoritative: true })
       }
       // Never return an access token that is provably already past its expiry
       // when refresh failed (doing so guaranteed a bogus downstream 401).

@@ -14,6 +14,7 @@ import {
   type QuotaUnavailableState,
 } from '../common/pool-types.ts'
 import { accountCanServeModel } from './model-support.ts'
+import type { AuthEvidence, AuthVerdict } from '../domain/accounts/evidence.ts'
 import { defaultPoolDir } from '../domain/accounts/paths.ts'
 import { PoolAdmin } from '../domain/accounts/admin.ts'
 import { earliestAvailableCountdown, earliestResetCountdown, sweepOldAgyLogs } from '../domain/accounts/countdown.ts'
@@ -190,6 +191,11 @@ export class AccountPoolManager {
 
   noteAuthFailure(id: string, reason?: string): boolean {
     return this.admin.noteAuthFailure(id, reason)
+  }
+
+  /** Single writer for quota/token auth observations. */
+  applyAuthEvidence(id: string, evidence: AuthEvidence): AuthVerdict {
+    return this.admin.applyAuthEvidence(id, evidence)
   }
 
   resetAccountIdentity(id: string, newEmail: string, resetAlias = false): void {

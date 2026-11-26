@@ -583,7 +583,7 @@ test('agy_ask: explicit effort, readPaths and learned-refusal branches reach the
 
 function tokenDeps(over: Partial<QuotaTokenDeps> = {}, poolDir = '/tmp/pool'): QuotaTokenDeps {
   return {
-    pool: { dir: poolDir, clearAuthRequired: () => {}, markAuthRequired: () => {} },
+    pool: { dir: poolDir, applyAuthEvidence: () => {} },
     proxyFor: () => 'http://proxy.local',
     readSystemKeychainToken: async () => null,
     getStoredToken: async () => null,

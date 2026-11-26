@@ -14,6 +14,7 @@ import type {
 } from '../../common/pool-types.ts'
 import { quotaSummarySuppressed } from '../../common/pool-types.ts'
 import { QUOTA_FREE_TIER_RETRY_MS, QUOTA_LICENSE_RETRY_MS, QUOTA_SUMMARY_REFUSED_RETRY_MS } from '../../common/timeouts.ts'
+import type { AuthEvidence } from '../../domain/accounts/evidence.ts'
 import { shouldReleaseOrphanedCooldown, summaryHasArgonGroup } from '../../domain/quota/buckets.ts'
 import { inferAccountPlanTier, type PlanTierGroupLike } from '../../domain/quota/tier.ts'
 import type { QuotaSummaryFailure } from './http.ts'
@@ -36,8 +37,8 @@ interface PrimaryCredentialLike {
 export interface QuotaRefreshPool {
   readonly dir: string
   getAccounts(): readonly ManagedAccount[]
-  markAuthRequired(id: string, reason?: string): void
-  clearAuthRequired(id: string): void
+  /** The pool's single auth writer; this pipeline contributes observations. */
+  applyAuthEvidence(id: string, evidence: AuthEvidence): unknown
   noteDedicatedGroup(id: string, family: ModelFamily): void
   forgetDedicatedGroup(id: string, family: ModelFamily): void
   clearQuotaFamily(id: string, family: ModelFamily): void
@@ -128,10 +129,12 @@ export async function refreshAccountQuotaPipeline(
       ownFingerprint !== null &&
       ownFingerprint === deps.credentialFingerprint(stored.raw)
     ) {
-      deps.pool.markAuthRequired(
-        account.id,
-        "stored credential is the primary account's — this login was overwritten, sign in again",
-      )
+      deps.pool.applyAuthEvidence(account.id, {
+        kind: 'auth-failure',
+        at: now,
+        reason: "stored credential is the primary account's — this login was overwritten, sign in again",
+        authoritative: true,
+      })
       return null
     }
   }
@@ -170,9 +173,9 @@ export async function refreshAccountQuotaPipeline(
   if (deps.shouldUseCli()) {
     const cliFamilies = await deps.readCliUsageFamilies(account)
     if (cliFamilies !== null && Object.keys(cliFamilies).length > 0) {
-      if (account.authRequired) {
-        deps.pool.clearAuthRequired(account.id)
-      }
+      // Authoritative quotas just came back through a live login: this is
+      // proof of life, never a reason to lift a terminal TOS ban.
+      deps.pool.applyAuthEvidence(account.id, { kind: 'authenticated', at: now, source: 'quota' })
       if (cliFamilies.argon) {
         deps.pool.noteDedicatedGroup(account.id, 'argon')
       } else {
@@ -254,10 +257,12 @@ export async function refreshAccountQuotaPipeline(
           other.dir !== account.dir,
       )
     if (collisionsWithSibling) {
-      deps.pool.markAuthRequired(
-        account.id,
-        `stored credential belongs to ${email} (another account's login) — sign in again`,
-      )
+      deps.pool.applyAuthEvidence(account.id, {
+        kind: 'auth-failure',
+        at: now,
+        reason: `stored credential belongs to ${email} (another account's login) — sign in again`,
+        authoritative: true,
+      })
       return null
     }
     deps.pool.resetAccountIdentity(account.id, email)
@@ -335,10 +340,10 @@ export async function refreshAccountQuotaPipeline(
         ...(failure?.detail === undefined ? {} : { detail: failure.detail }),
         ...(failure?.actionUrl === undefined ? {} : { actionUrl: failure.actionUrl }),
       })
-      if ((reason === 'validation_required' || reason === 'tos_violation') && !account.authRequired) {
+      if (reason === 'validation_required' || reason === 'tos_violation') {
         const tag = reason === 'tos_violation' ? 'TOS_VIOLATION' : 'VALIDATION_REQUIRED'
         const suffix = failure?.actionUrl ? ` (${failure.actionUrl})` : ''
-        deps.pool.markAuthRequired(account.id, `${tag}${suffix}`)
+        deps.pool.applyAuthEvidence(account.id, { kind: 'terminal-restriction', at: now, reason: `${tag}${suffix}` })
       }
     }
   }
@@ -351,8 +356,8 @@ export async function refreshAccountQuotaPipeline(
   // authRequired flag (e.g. set while the OLD account was logging out) is
   // disproven — unless the summary call JUST revealed VALIDATION_REQUIRED or
   // TOS_VIOLATION, which requires user intervention before the account can run.
-  if (account.authRequired && currentUnavailReason !== 'validation_required' && currentUnavailReason !== 'tos_violation') {
-    deps.pool.clearAuthRequired(account.id)
+  if (currentUnavailReason !== 'validation_required' && currentUnavailReason !== 'tos_violation') {
+    deps.pool.applyAuthEvidence(account.id, { kind: 'authenticated', at: now, source: 'quota' })
   }
 
   const { familyQuotas, summaryGroups } = buildFamilyQuotas({

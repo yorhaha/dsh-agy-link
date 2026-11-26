@@ -192,7 +192,7 @@ test('agyFetch isolates ProxyAgent per accountScope, oauth tracks live agyVersio
     const acc = makeAcc({ id: 'acc_sec', dir })
     persistRefreshedToken(
       {
-        pool: { dir, clearAuthRequired: () => {}, markAuthRequired: () => {} },
+        pool: { dir, applyAuthEvidence: () => {} },
         proxyFor: () => undefined,
         readSystemKeychainToken: async () => null,
         getStoredToken: async () => null,

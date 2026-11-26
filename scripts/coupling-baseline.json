@@ -26,14 +26,6 @@
     "src/features/quota/pool-sweep.ts": {
       "healAuthFlagsFromQuota": 4
     },
-    "src/features/quota/refresh.ts": {
-      "clearAuthRequired": 3,
-      "markAuthRequired": 4
-    },
-    "src/features/quota/token.ts": {
-      "clearAuthRequired": 2,
-      "markAuthRequired": 2
-    },
     "src/features/subagent/tracker.ts": {
       "onQuotaExhausted": 4
     },

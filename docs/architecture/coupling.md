@@ -65,8 +65,12 @@ FR4 目录        X    X    X
 
 Evidence in the current tree:
 
-* quota refresh clears `authRequired` after authenticated evidence
-  (`src/features/quota/refresh.ts`, `src/host/pool-auth.ts`);
+* quota and token refresh observe credentials, quota success and TOS/validation
+  refusals, but write them as `AuthEvidence` through the single
+  `applyAuthEvidence` writer; the verdict itself is the pure
+  `deriveAuthVerdict` (`src/features/quota/refresh.ts`,
+  `src/features/quota/token.ts`, `src/domain/accounts/evidence.ts`,
+  `src/domain/accounts/auth-state.ts`);
 * quota acquisition needs a fresh token, so identity gates quota
   (`src/host/quota.ts`, `src/features/quota/token.ts`);
 * eligibility reads a catalog fallback and the catalog merges quota rows
@@ -78,7 +82,10 @@ Tracked bridge symbols: `clearAuthRequired`, `markAuthRequired`,
 
 Target: append-only evidence + pure derivation. Quota produces a snapshot and
 an `AuthEvidence`; one writer applies it; eligibility is a pure function of
-account + quota snapshot + catalog snapshot. No synchronous cross-writes.
+account + quota snapshot + catalog snapshot. No synchronous cross-writes. Both
+quota refresh and token refresh now funnel through the writer; run settlement
+and the explicit user paths still call `markAuthRequired`/`clearAuthRequired`
+directly.
 
 ## Kernel B — inference stream ↔ tool mirror
 
@@ -155,4 +162,4 @@ Rules:
    new uses of the known bridges visible. `scripts/check-architecture.mjs`
    remains the import-cycle and direction gate.
 
-Current baseline: **19 files / 63 references / 8 tracked symbols**.
+Current baseline: **17 files / 52 references / 8 tracked symbols**.
