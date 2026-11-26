@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 
 import { buildAccountModelRows } from '../src/common/account-models.ts'
 import { isQuotaBenched } from '../src/common/quota-bench.ts'
-import { nextQuotaResetAt, orderByExpiry } from '../src/domain/accounts/selection.ts'
+import { nextQuotaResetAt } from '../src/domain/accounts/selection.ts'
 import { buildFamilyQuotas } from '../src/domain/quota/parse.ts'
 import type { ManagedAccount } from '../src/common/pool-types.ts'
 
@@ -42,20 +42,6 @@ test('no argon row means an UNKNOWN argon reset, never the Gemini one', () => {
     'an absent argon row must not inherit the Gemini reset time',
   )
   assert.equal(nextQuotaResetAt(a, 'google'), Math.min(Date.parse(RESET), Date.parse(RESET)))
-})
-
-test('a known argon reset outranks accounts with no argon row', () => {
-  const withArgon = acc({ id: 'acc_with_argon', quotas: { argon: { weeklyFraction: 0.9, weeklyResetTime: RESET } } })
-  const withoutArgon = acc({
-    id: 'acc_no_argon',
-    quotas: { google: { remainingFraction: 1, resetTime: RESET, weeklyFraction: 1, weeklyResetTime: RESET } },
-  })
-  const pool = [withoutArgon, withArgon]
-  assert.equal(
-    orderByExpiry(pool, pool, 'argon', undefined, NOW)[0]?.id,
-    'acc_with_argon',
-    'a known argon reset must beat a borrowed one',
-  )
 })
 
 test('a drained Gemini pool must not bench Argon, and vice versa', () => {

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { resolveAccountPlanTier } from '../src/common/plan-tier.ts'
-import type { ManagedAccount } from '../src/common/pool-types.ts'
+import type { AccountPoolData, ManagedAccount } from '../src/common/pool-types.ts'
 import { PoolAdmin } from '../src/domain/accounts/admin.ts'
 
 const paidShape = {
@@ -34,8 +34,9 @@ test('a pinned tier outranks the inference, in both directions', () => {
 
 function adminWith(account: ManagedAccount): { admin: PoolAdmin; persisted: () => number } {
   let persists = 0
-  const data = { version: 1, defaultCooldownMs: 900000, maxCooldownMs: 3600000, accounts: [account] } as never
+  const data: AccountPoolData = { version: 1, defaultCooldownMs: 900000, maxCooldownMs: 3600000, accounts: [account] }
   const admin = new PoolAdmin({
+    authStrikes: new Map<string, number>(),
     getData: () => data,
     persist: () => { persists += 1 },
   })

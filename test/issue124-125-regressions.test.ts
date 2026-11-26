@@ -106,32 +106,33 @@ test('issue #124: the watchdog exempts the idle reaper only for subagent-collab 
   wd.stop()
 })
 
-test('issue #125: model support stays ACCOUNT-scoped so routing picks the right account', async () => {
+test('issue #125: model support stays ACCOUNT-scoped so routing trusts the account evidence', async () => {
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const { AccountPoolManager } = await import('../src/host/pool.ts')
 
+  // One account: its own per-model quota snapshot decides support. A sibling's
+  // catalog must never corroborate it (that sibling-scoping was the #125 bug);
+  // with a single account the invariant is that the snapshot is authoritative
+  // and a learned refusal outranks a snapshot taken before it.
   const dir = mkdtempSync(join(tmpdir(), 'agy-125-'))
   const pool = new AccountPoolManager(dir)
-  pool.createAccountSlot('second')
-  const [a, b] = pool.getAccounts()
+  const account = pool.getPrimaryAccount()
   const model = 'gemini-4-hydrogen'
-  pool.updateAccountQuotas(a!.id, {
+  pool.updateAccountQuotas(account.id, {
     google: { updatedAt: Date.now(), models: [{ modelId: 'gemini-3.8-flash-high', remainingFraction: 1 }] },
   } as never)
-  pool.updateAccountQuotas(b!.id, {
+  assert.equal(pool.isModelSupported(pool.getAccount(account.id)!, model), false, 'a model missing from the account snapshot is unsupported')
+
+  pool.updateAccountQuotas(account.id, {
     google: { updatedAt: Date.now(), models: [{ modelId: 'gemini-4-hydrogen-high', remainingFraction: 1 }] },
   } as never)
+  assert.equal(pool.isModelSupported(pool.getAccount(account.id)!, model), true, 'listing the model makes it supported')
 
-  // A sibling serving the model must NOT make account A look capable: selection
-  // routes on this answer, so corroborating here sent requests to an account
-  // that cannot serve them. Pool-wide healing happens before the error instead.
-  assert.equal(pool.isModelSupported(pool.getAccount(a!.id)!, model), false)
-  assert.equal(pool.isModelSupported(pool.getAccount(b!.id)!, model), true)
   // A learned refusal outranks the quota snapshot taken before it.
-  pool.markModelUnsupported(b!.id, model)
-  assert.equal(pool.isModelSupported(pool.getAccount(b!.id)!, model), false)
+  pool.markModelUnsupported(account.id, model)
+  assert.equal(pool.isModelSupported(pool.getAccount(account.id)!, model), false)
 })
 
 test('a learned refusal heals once a later quota refresh lists the model again', async () => {
@@ -185,8 +186,6 @@ test('issue #125: an all-model-mismatch failure heals with ONE quota refresh, th
       selectCalls += 1
       return refreshed === 0 ? null : account
     },
-    getPoolData: () => ({ lastActiveAccountId: undefined }),
-    setActiveAccount: () => {},
     getEarliestResetCountdown: () => null,
   } as never
   const res = await selectSessionAccount({
@@ -215,8 +214,6 @@ test('issue #125: the self-heal does not run for a quota/auth blocker', async ()
     getAccounts: () => [account],
     explainIneligibility: () => 'quota',
     selectAccount: () => null,
-    getPoolData: () => ({ lastActiveAccountId: undefined }),
-    setActiveAccount: () => {},
     getEarliestResetCountdown: () => 30_000,
   } as never
   await assert.rejects(() => selectSessionAccount({

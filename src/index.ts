@@ -450,6 +450,7 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
       pluginDisposing = true
       bridgeDisposed = true
       services.backgroundWakeup.dispose()
+      services.quotaRefresher?.dispose()
       acpPool.dispose()
       auth.dispose()
       void poolAuth.cancel()

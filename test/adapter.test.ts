@@ -4,7 +4,7 @@
 // argv assembly.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -25,6 +25,14 @@ import { NETWORK_RETRY_DELAYS_MS, defaultConfig, Err, type PluginConfig } from '
 const fakeBin = join(import.meta.dirname, 'fake-agy.mjs')
 const workDir = mkdtempSync(join(tmpdir(), 'agy-adapter-'))
 process.env.DSH_AGY_CONVERSATIONS_DIR = join(workDir, 'convs')
+// Keep the suite hermetic. The adapter extracts agy log lines from the system
+// HOME's brain directory, and the fake CLI reuses fixed conversation ids
+// (`conv-fresh-1`), so a developer's real history (or a leftover artifact from
+// another run) would otherwise be attributed to these fake conversations.
+const testHome = join(workDir, 'home')
+mkdirSync(testHome, { recursive: true })
+process.env.HOME = testHome
+process.env.USERPROFILE = testHome
 
 function msg(role: 'user' | 'assistant' | 'system', text: string): Message {
   return { role, content: [{ type: 'text', text }] } as unknown as Message
@@ -913,7 +921,7 @@ test('parseModelNotRecognized reads the real agy model refusal text', () => {
   assert.equal(parseModelNotRecognized(''), null)
 })
 
-test('unrecognized model refusal on attempt 0 marks unsupported and replays on eligible account', async () => {
+test('unrecognized model refusal marks the model unsupported with no spare account to replay on', async () => {
   const invocations = join(workDir, 'model-unsupported-invocations.txt')
   rmSync(invocations, { force: true })
   process.env.FAKE_AGY_MODE = 'model-unsupported'
@@ -921,10 +929,8 @@ test('unrecognized model refusal on attempt 0 marks unsupported and replays on e
 
   const poolDir = mkdtempSync(join(tmpdir(), 'agy-model-replay-pool-'))
   const pool = new AccountPoolManager(poolDir)
-  const acc1 = pool.getAccounts()[0]!
-  const acc2 = pool.createAccountSlot('Secondary Account')
-  pool.updateAccountQuotas(acc1.id, { anthropic: { remainingFraction: 1 } })
-  pool.updateAccountQuotas(acc2.id, { anthropic: { remainingFraction: 1 } })
+  const primary = pool.getPrimaryAccount()
+  pool.updateAccountQuotas(primary.id, { anthropic: { remainingFraction: 1 } })
 
   try {
     const { adapter } = makeAdapter({}, { pool })
@@ -933,19 +939,17 @@ test('unrecognized model refusal on attempt 0 marks unsupported and replays on e
         opts([msg('user', 'hi')], { model: 'claude-opus-4-6-thinking' } as Partial<GenerateOptions>),
       ),
     )
-    const text = chunks.filter((c) => c.type === 'text-delta').map((c) => (c as { text: string }).text).join('')
-    const finish = chunks[chunks.length - 1] as { type: string; reason: { kind: string } }
+    const finish = chunks[chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
     assert.equal(finish.type, 'finish')
-    assert.equal(finish.reason.kind, 'stop', 'the replay must end as a normal stop, not an error')
-    assert.match(text, /answered on supported account/)
+    assert.equal(finish.reason.kind, 'error', 'with no spare account the refusal surfaces instead of replaying')
+    assert.equal(finish.reason.failure?.code, 'PROCESS_EXIT')
 
-    // Two spawns: refused attempt on acc1, replay on acc2
+    // One spawn: there is no second account to replay on.
     const spawns = readFileSync(invocations, 'utf8').split('\n').filter(Boolean).length
-    assert.equal(spawns, 2, 'refusal on attempt 0 must trigger exactly one replay')
+    assert.equal(spawns, 1, 'a lone account must not re-spawn against the same unsupported model')
 
-    // acc1 must be marked unsupported for claude-opus-4-6
-    assert.equal(pool.isModelSupported(acc1, 'claude-opus-4-6-thinking'), false)
-    assert.equal(pool.isModelSupported(acc2, 'claude-opus-4-6-thinking'), true)
+    // The primary account remembers the model is unsupported.
+    assert.equal(pool.isModelSupported(pool.getAccount(primary.id)!, 'claude-opus-4-6-thinking'), false)
   } finally {
     delete process.env.FAKE_AGY_INVOCATION_FILE
     process.env.FAKE_AGY_MODE = 'ok'
@@ -1332,28 +1336,6 @@ test('"Eligibility check failed" wrapping a TLS handshake timeout is NETWORK, no
   assert.ok(!finish.reason.failure?.message.includes('not eligible'), 'must not show the region hint: ' + finish.reason.failure?.message)
 })
 
-test('live location refusal rotates the refused account away (retry can serve another)', async () => {
-  const prevMode = process.env.FAKE_AGY_MODE
-  process.env.FAKE_AGY_MODE = 'location-denied'
-  const pool = new AccountPoolManager(join(workDir, 'pool-location'))
-  const second = pool.createAccountSlot('Proxied')
-  try {
-    const { adapter } = makeAdapter({}, { pool })
-    const res = await runTurn(adapter, [msg('user', 'hi')], { sessionId: 'sess-location' as never })
-    const finish = res.chunks[res.chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string; message: string } } }
-    assert.equal(finish.reason.failure?.code, Err.ELIGIBILITY)
-    assert.ok(finish.reason.failure?.message.includes('location'), finish.reason.failure?.message)
-    // ELIGIBILITY is retryable AND the sticky pointer already moved off the
-    // refused account, so the retry is served by a different account instead of
-    // hitting the same unsupported location again and again.
-    assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
-    // Rotating away is not a cooldown penalty on a healthy account.
-    assert.equal(pool.getAccounts()[0]!.cooldowns.google, undefined)
-  } finally {
-    process.env.FAKE_AGY_MODE = prevMode
-  }
-})
-
 function msgSrc(role: 'user' | 'assistant', text: string, provider?: string, replayState?: unknown): Message {
   const m: Record<string, unknown> = { role, content: [{ type: 'text', text }] }
   if (provider !== undefined) m.source = { provider, ...(replayState !== undefined ? { replayState } : {}) }
@@ -1699,38 +1681,29 @@ test('listModels and resolveModel defensively handle empty IDs, empty names, and
   assert.equal(resolvedNoEffort.reasoning, undefined)
 })
 
-test('listModels exposes union of models across all accounts while resolveModel remains pure', async () => {
-  let activeId = 'acc_free'
-  const accounts: Record<string, any> = {
-    acc_free: {
-      id: 'acc_free',
-      alias: 'Free Account',
-      dir: '/tmp/acc_free',
-      enabled: true,
-      quotas: { google: { remainingFraction: 1 } },
-    },
-    acc_pro: {
-      id: 'acc_pro',
-      alias: 'Pro Account',
-      dir: '/tmp/acc_pro',
-      enabled: true,
-      quotas: { argon: { remainingFraction: 1 }, google: { remainingFraction: 1 } },
-    },
+test('listModels scopes the catalog to the single primary account while resolveModel remains pure', async () => {
+  const primary = {
+    id: 'acc_primary',
+    alias: 'Primary Account',
+    dir: '',
+    systemHome: true,
+    enabled: true,
+    quotas: { google: { remainingFraction: 1 } },
   }
   const fakePool = {
-    getActiveAccountId: () => activeId,
-    getPoolData: () => ({ primaryAccountId: 'acc_free', lastActiveAccountId: activeId, accounts: Object.values(accounts) }),
-    getAccounts: () => Object.values(accounts),
-    getAccount: (id: string) => accounts[id],
-    hasDedicatedGroup: (id: string, fam: string) => id === 'acc_pro' && fam === 'argon',
-    accountHasArgon: (acc: any) => acc.id === 'acc_pro',
-    isAccountEligible: (acc: any, fam: string) => fam === 'argon' ? acc.id === 'acc_pro' : true,
-    isModelSupported: (acc: any, model: string) => model === 'gemini-4-argon' ? acc.id === 'acc_pro' : true,
-    selectAccount: (fam: string) => {
-      if (fam === 'argon') return accounts['acc_pro']
-      return accounts[activeId]
-    },
-    setActiveAccount: (id: string) => { activeId = id; return true },
+    getActiveAccountId: () => 'acc_primary',
+    getPrimaryAccount: () => primary,
+    getPoolData: () => ({
+      version: 1,
+      defaultCooldownMs: 900_000,
+      maxCooldownMs: 3_600_000,
+      primaryAccountId: 'acc_primary',
+      accounts: [primary],
+    }),
+    getAccounts: () => [primary],
+    getAccount: (id: string) => (id === 'acc_primary' ? primary : undefined),
+    hasDedicatedGroup: () => false,
+    accountHasArgon: () => false,
   }
   const { adapter } = makeAdapter({
     fallbackModels: [
@@ -1739,50 +1712,31 @@ test('listModels exposes union of models across all accounts while resolveModel 
     ],
   }, { pool: fakePool as any })
 
-  // 1. With free account active: only models supported by acc_free are listed (argon excluded)
-  activeId = 'acc_free'
-  const freeModels = await adapter.listModels('antigravity')
-  assert.ok(freeModels.some((m) => m.id === 'gemini-3.8-flash'))
-  assert.ok(!freeModels.some((m) => m.id === 'gemini-4-argon'), 'free account without argon must not advertise argon in picker')
+  // The primary account has no Argon access, so the picker must not offer it.
+  const models = await adapter.listModels('antigravity')
+  assert.ok(models.some((m) => m.id === 'gemini-3.8-flash'))
+  assert.ok(!models.some((m) => m.id === 'gemini-4-argon'), 'an account without argon must not advertise argon in the picker')
 
-  // 2. When switched to pro account: argon is listed in the picker
-  activeId = 'acc_pro'
-  const proModels = await adapter.listModels('antigravity')
-  assert.ok(proModels.some((m) => m.id === 'gemini-4-argon'), 'pro account must advertise argon in picker')
-
-  // 3. Resolving gemini-4-argon succeeds from union models without mutating active account (pure query)
-  activeId = 'acc_free'
+  // Resolving a known fallback model stays a pure query.
   const resolved = await adapter.resolveModel('antigravity', 'gemini-4-argon')
   assert.equal(resolved.id, 'gemini-4-argon')
-  assert.equal(activeId, 'acc_free', 'resolveModel must remain side-effect free')
-
-  // 3. When NO account in the pool has Argon access, Argon is excluded
-  const fakePoolNoArgon = {
-    ...fakePool,
-    getAccounts: () => [accounts['acc_free']],
-    getPoolData: () => ({ primaryAccountId: 'acc_free', lastActiveAccountId: 'acc_free', accounts: [accounts['acc_free']] }),
-    hasDedicatedGroup: () => false,
-    accountHasArgon: () => false,
-  }
-  const { adapter: adapterNoArgon } = makeAdapter({
-    fallbackModels: [
-      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
-      { id: 'gemini-4-argon', name: 'Gemini 4 Argon' },
-    ],
-  }, { pool: fakePoolNoArgon as any })
-  const freeOnlyModels = await adapterNoArgon.listModels('antigravity')
-  assert.ok(!freeOnlyModels.some((m) => m.id === 'gemini-4-argon'), 'pool without any argon accounts must not show gemini-4-argon')
 })
 
 test('N lookups of an unavailable model do not rewrite or mutate the pool', async () => {
-  let activeId = 'acc_free'
   let persistCalls = 0
+  const primary = { id: 'acc_primary', alias: 'Primary', dir: '', systemHome: true, enabled: true, quotas: {} }
   const fakePool = {
-    getActiveAccountId: () => activeId,
-    getPoolData: () => ({ primaryAccountId: 'acc_free', lastActiveAccountId: activeId, accounts: [] }),
-    getAccounts: () => [{ id: 'acc_free', enabled: true, quotas: {} }],
-    getAccount: () => ({ id: 'acc_free', enabled: true }),
-    setActiveAccount: () => { persistCalls++; return true },
+    getActiveAccountId: () => 'acc_primary',
+    getPrimaryAccount: () => primary,
+    getPoolData: () => ({
+      version: 1,
+      defaultCooldownMs: 900_000,
+      maxCooldownMs: 3_600_000,
+      primaryAccountId: 'acc_primary',
+      accounts: [primary],
+    }),
+    getAccounts: () => [primary],
+    getAccount: () => primary,
     persist: () => { persistCalls++ },
   }
   const { adapter } = makeAdapter({
@@ -1794,7 +1748,7 @@ test('N lookups of an unavailable model do not rewrite or mutate the pool', asyn
     assert.equal(info.id, 'gemini-4-argon')
   }
   assert.equal(persistCalls, 0, 'repeated lookups of unsupported model must not rewrite the pool')
-  assert.equal(activeId, 'acc_free')
+  assert.equal(fakePool.getActiveAccountId(), 'acc_primary')
 })
 
 test('stream error provides unsupported hint when no account has access to the requested family', async () => {
@@ -1810,8 +1764,8 @@ test('stream error provides unsupported hint when no account has access to the r
   await assert.rejects(
     () => collect(adapter.stream(opts([msg('user', 'hi')], { model: 'gemini-4-argon' }))),
     (err: any) => {
-      assert.ok(err.message.includes('1 lack argon access'), `expected lack argon access in ${err.message}`)
-      assert.ok(err.message.includes('No enabled account has access to argon'), `expected unsupported hint in ${err.message}`)
+      assert.ok(err.message.includes('no argon access'), `expected no argon access in ${err.message}`)
+      assert.ok(err.message.includes("This account's plan has no argon access enabled"), `expected unsupported hint in ${err.message}`)
       return true
     },
   )
@@ -2088,7 +2042,6 @@ test('soft rate limit signal (model overloaded) becomes a retryable OVERLOADED a
   process.env.FAKE_AGY_MODE = 'real-fail'
   process.env.FAKE_AGY_INVOCATION_FILE = invocationFile
   const pool = new AccountPoolManager(join(workDir, `pool-soft-overload-${Date.now()}`))
-  pool.createAccountSlot('Second')
   const initialActive = pool.getActiveAccountId('google')
   try {
     const { adapter } = makeAdapter({}, { pool })
@@ -2118,7 +2071,6 @@ test('transport-shaped auth failure is NETWORK (retryable) instead of AUTH', asy
   const prevMode = process.env.FAKE_AGY_MODE
   process.env.FAKE_AGY_MODE = 'auth-network'
   const pool = new AccountPoolManager(join(workDir, 'pool-auth-network'))
-  const second = pool.createAccountSlot('Second')
   const initialActive = pool.getActiveAccountId('google')
   try {
     const { adapter } = makeAdapter({}, { pool })
@@ -2136,27 +2088,7 @@ test('transport-shaped auth failure is NETWORK (retryable) instead of AUTH', asy
     // No account owns a proxy here: every account leaves through the same
     // egress, so rotating the sticky pointer only repoints the session and
     // spends the rotation budget a real quota/eligibility hop needs.
-    assert.equal(pool.getActiveAccountId('google'), initialActive, 'a shared-egress blip must stay on the current account')
-    assert.notEqual(pool.getActiveAccountId('google'), second.id, 'the shared-egress blip must not hop accounts')
-  } finally {
-    process.env.FAKE_AGY_MODE = prevMode
-  }
-})
-
-test('a transport failure rotates when accounts leave through different proxies', async () => {
-  const prevMode = process.env.FAKE_AGY_MODE
-  process.env.FAKE_AGY_MODE = 'auth-network'
-  const pool = new AccountPoolManager(join(workDir, `pool-auth-network-split-${Date.now()}`))
-  const second = pool.createAccountSlot('Second')
-  // A per-account proxy makes the egress account-scoped: this account's route
-  // to Google can be broken while the next account's route is fine.
-  pool.setAccountProxy(second.id, 'socks5://127.0.0.1:7890')
-  try {
-    const { adapter } = makeAdapter({}, { pool })
-    const chunks = await collect(adapter.stream(opts([msg('user', 'hi')], { sessionId: 'sess-auth-network-split' as never })))
-    const finish = chunks[chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
-    assert.equal(finish.reason.failure?.code, Err.NETWORK)
-    assert.equal(pool.getPoolData().lastActiveAccountId, second.id, 'a distinct egress must hand the retry to the other account')
+    assert.equal(pool.getActiveAccountId('google'), initialActive, 'a shared-egress blip must stay on the primary account')
   } finally {
     process.env.FAKE_AGY_MODE = prevMode
   }
@@ -2205,8 +2137,7 @@ test('a keyring-auth timeout in agy\'s own log is NETWORK, never a sticky AUTH q
   const prevMode = process.env.FAKE_AGY_MODE
   process.env.FAKE_AGY_MODE = 'auth-jitter'
   const pool = new AccountPoolManager(join(workDir, 'pool-auth-jitter'))
-  const slot = pool.createAccountSlot('Jitter')
-  pool.setAccountEnabled('acc_primary', false)
+  const primary = pool.getPrimaryAccount()
   try {
     const { adapter } = makeAdapter({}, { pool })
     const chunks = await collect(adapter.stream(opts([msg('user', 'hi')], { sessionId: 'sess-auth-jitter' as never })))
@@ -2214,9 +2145,9 @@ test('a keyring-auth timeout in agy\'s own log is NETWORK, never a sticky AUTH q
     assert.equal(finish.reason.kind, 'error')
     assert.equal(finish.reason.failure?.code, Err.NETWORK, JSON.stringify(finish.reason.failure))
     assert.ok(/keyring auth timing out/.test(finish.reason.failure?.message ?? ''), finish.reason.failure?.message)
-    const flagged = pool.getAccount(slot.id)!
+    const flagged = pool.getAccount(primary.id)!
     assert.equal(flagged.authRequired, undefined, 'jitter must never sticky-quarantine the account')
-    assert.equal(pool.getPoolData().lastActiveAccountId, slot.id === flagged.id ? slot.id : pool.getPoolData().lastActiveAccountId)
+    assert.equal(pool.getActiveAccountId('google'), primary.id)
   } finally {
     process.env.FAKE_AGY_MODE = prevMode
   }
@@ -2226,8 +2157,7 @@ test('a bare "not signed in" banner does not sticky-quarantine on the first occu
   const prevMode = process.env.FAKE_AGY_MODE
   process.env.FAKE_AGY_MODE = 'auth'
   const pool = new AccountPoolManager(join(workDir, 'pool-auth-confirm'))
-  const slot = pool.createAccountSlot('Ambiguous')
-  pool.setAccountEnabled('acc_primary', false)
+  const primary = pool.getPrimaryAccount()
   try {
     const { adapter } = makeAdapter({}, { pool })
     const chunks = await collect(adapter.stream(opts([msg('user', 'hi')], { sessionId: 'sess-auth-confirm' as never })))
@@ -2235,37 +2165,9 @@ test('a bare "not signed in" banner does not sticky-quarantine on the first occu
     // The turn still fails with the accurate AUTH diagnosis…
     assert.equal(finish.reason.failure?.code, Err.AUTH)
     // …but one banner is not proof of a dead login, so no sticky flag yet.
-    assert.equal(pool.getAccount(slot.id)!.authRequired, undefined, 'a single ambiguous AUTH must not hard-quarantine')
+    assert.equal(pool.getAccount(primary.id)!.authRequired, undefined, 'a single ambiguous AUTH must not hard-quarantine')
   } finally {
     process.env.FAKE_AGY_MODE = prevMode
-  }
-})
-
-test('a post-tool quota failure fails over inside the same step (no dead replay)', async () => {
-  const prevMode = process.env.FAKE_AGY_MODE
-  const invocationFile = join(workDir, `invocations-${Date.now()}.txt`)
-  process.env.FAKE_AGY_MODE = 'quota-once'
-  process.env.FAKE_AGY_INVOCATION_FILE = invocationFile
-  const pool = new AccountPoolManager(join(workDir, `pool-post-tool-${Date.now()}`))
-  const second = pool.createAccountSlot('Second')
-  try {
-    const { adapter } = makeAdapter({}, { pool })
-    // quota-once spends the FIRST account after a tool step, so the failure
-    // surfaces in the tool-continuation span. That span used to be re-driven
-    // from the settled recording and re-emit the identical failure, ending the
-    // turn while a healthy account was idle.
-    const res = await runTurn(adapter, [msg('user', 'count the files')], { sessionId: 'sess-post-tool' as never })
-    const finish = res.chunks[res.chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
-    assert.equal(finish.type, 'finish')
-    assert.equal(finish.reason.kind, 'stop', 'the surviving account must answer instead of the turn failing')
-    const spawns = readFileSync(invocationFile, 'utf8').split('\n').filter(Boolean).length
-    assert.equal(spawns, 2, 'exactly one failover spawn')
-    const primary = pool.getAccounts()[0]!
-    assert.ok((primary.cooldowns.google?.cooldownUntil ?? 0) > Date.now(), 'the spent account must be cooled')
-    assert.equal(pool.getPoolData().lastActiveAccountId, second.id, 'the failover spawn must use the next account')
-  } finally {
-    process.env.FAKE_AGY_MODE = prevMode
-    delete process.env.FAKE_AGY_INVOCATION_FILE
   }
 })
 
@@ -2298,40 +2200,16 @@ test('the retry policy can carry the whole transport backoff schedule', () => {
   assert.equal(policy.initialDelayMs, 2_000)
 })
 
-test('the retry budget follows the pool so a 3-account pool fails over twice', () => {
+test('the retry budget covers the transport schedule without a spare account', () => {
   const pool = new AccountPoolManager(join(workDir, `pool-retry-budget-${Date.now()}`))
-  pool.createAccountSlot('Second')
-  pool.createAccountSlot('Third')
   const { adapter } = makeAdapter({}, { pool })
   const policy = adapter.providerRetryPolicy('agy')
-  // With one spare account a stale-token second account turned the single retry
-  // into a dead end (live 2026-10-10: primary ELIGIBILITY → g98 "not signed in"
-  // → turn lost). The budget must cover the pool…
+  // A single account still needs every transport hop (5s/15s/30s), but a
+  // sign-out has nowhere to fail over to and would just burn a second request.
   assert.equal(policy.maxRetries, NETWORK_RETRY_DELAYS_MS.length)
-  assert.ok(policy.retryableCodes.includes(Err.AUTH), 'with a spare account a sign-out can continue on the next one')
+  assert.ok(!(policy.retryableCodes as readonly string[]).includes(Err.AUTH), 'a lone account cannot fail over a sign-out')
   assert.ok(policy.retryableCodes.includes(Err.ELIGIBILITY))
   assert.ok(policy.retryableCodes.includes(Err.OVERLOADED))
-})
-
-test('hard quota refusal cools the spent account and hands the retry to the next one', async () => {
-  const prevMode = process.env.FAKE_AGY_MODE
-  process.env.FAKE_AGY_MODE = 'real-quota'
-  const pool = new AccountPoolManager(join(workDir, 'pool-hard-quota'))
-  const second = pool.createAccountSlot('Second')
-  try {
-    const { adapter } = makeAdapter({}, { pool })
-    const res = await runTurn(adapter, [msg('user', 'hi')], { sessionId: 'sess-hard-quota' as never })
-    const finish = res.chunks[res.chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string; message: string } } }
-    assert.equal(finish.reason.kind, 'error')
-    assert.equal(finish.reason.failure?.code, Err.RATE_LIMIT, 'hard quota must use the retryable code')
-    const primary = pool.getAccounts()[0]!
-    // Spent account left rotation...
-    assert.ok((primary.cooldowns.google?.cooldownUntil ?? 0) > Date.now(), 'hard quota must cool the account down')
-    // ...and the pointer already moved on, so the retry lands on the next one.
-    assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
-  } finally {
-    process.env.FAKE_AGY_MODE = prevMode
-  }
 })
 
 test('sliding-window rate limit enforces request throttling per minute', async () => {
@@ -2541,49 +2419,6 @@ test('steered prompt carries interrupted notice so agy switches tasks immediatel
   } finally {
     delete process.env.FAKE_AGY_DELAY_MS
   }
-})
-
-test('session sticks to current account across multiple turns and only switches when quota is exhausted', async () => {
-  const pool = new AccountPoolManager(join(workDir, `pool-session-sticky-${Date.now()}`))
-  const first = pool.getAccounts()[0]!
-  const second = pool.createAccountSlot('Account B')
-
-  const { adapter } = makeAdapter({}, { pool })
-  const sessionId = 'sess-sticky-account-turns' as never
-
-  // Turn 1 on first account
-  const res1 = await runTurn(adapter, [msg('user', 'Hello turn 1')], { sessionId })
-  assert.equal(res1.chunks[res1.chunks.length - 1]!.type, 'finish')
-  assert.equal(pool.getPoolData().lastActiveAccountId, first.id)
-
-  // Even if another account exists or was marked active by background or another session,
-  // Turn 2 MUST stay on the first account because its quota is not exhausted!
-  pool.markAccountActive(second.id)
-  const res2 = await runTurn(
-    adapter,
-    [msg('user', 'Hello turn 1'), msg('assistant', 'Reply 1'), msg('user', 'Hello turn 2')],
-    { sessionId },
-  )
-  assert.equal(res2.chunks[res2.chunks.length - 1]!.type, 'finish')
-  assert.equal(pool.getPoolData().lastActiveAccountId, first.id, 'session must stick to first account while quota is healthy')
-
-  // Now first account quota is exhausted (hits 429)
-  pool.recordFailure(first.id, 'google', 'RESOURCE_EXHAUSTED (code 429): Individual quota reached.')
-
-  // Turn 3 must now switch to second account because first account quota is exhausted
-  const res3 = await runTurn(
-    adapter,
-    [
-      msg('user', 'Hello turn 1'),
-      msg('assistant', 'Reply 1'),
-      msg('user', 'Hello turn 2'),
-      msg('assistant', 'Reply 2'),
-      msg('user', 'Hello turn 3'),
-    ],
-    { sessionId },
-  )
-  assert.equal(res3.chunks[res3.chunks.length - 1]!.type, 'finish')
-  assert.equal(pool.getPoolData().lastActiveAccountId, second.id, 'session must switch to second account once quota is exhausted')
 })
 
 test.after(() => {

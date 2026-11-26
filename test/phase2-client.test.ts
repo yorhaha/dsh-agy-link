@@ -127,14 +127,14 @@ test('POST /plugins/agy-link/pool/begin-add starts the primary re-login and comp
   routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', {}), rMissing)
   await rMissing.done
   assert.equal(rMissing.status, 400)
-  assert.equal(rMissing.json().code, 'missing_code')
+  assert.equal((rMissing.json() as { code?: string }).code, 'missing_code')
 
   // Complete with a code drives the pooled auth flow.
   const rDone = fakeRes()
   routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', { code: '4/valid-code' }), rDone)
   await rDone.done
   assert.equal(rDone.status, 200)
-  assert.equal(rDone.json().ok, true)
+  assert.equal((rDone.json() as { ok?: boolean }).ok, true)
 
   // Cancel abandons the flow.
   const rCancel = fakeRes()

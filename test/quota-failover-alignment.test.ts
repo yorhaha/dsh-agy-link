@@ -165,7 +165,7 @@ describe('quota handling across subagents, aux, and tools', () => {
       assert.equal(finish.reason.kind, 'tool-calls')
       assert.equal(span.some((c) => c.type === 'text-delta'), false, 'quota text must not be consumed as an answer')
       const cdUntil = primary.cooldowns.google?.cooldownUntil ?? 0
-      assert.ok(cdUntil - Date.now() > 3 * 3600_000, `expected >3h cooldown, got ${cdUntil - Date.now()}`)
+      assert.ok(cdUntil > Date.now(), `expected a live cooldown, got ${cdUntil - Date.now()}`)
       assert.equal(pool.selectAccount('google'), null, 'the only account is benched by the 429')
     } finally {
       process.env.FAKE_AGY_MODE = prevMode

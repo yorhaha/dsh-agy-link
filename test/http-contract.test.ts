@@ -287,6 +287,12 @@ function poolDouble(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** Let the route's background pipeline reach its finally block. */
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+}
+
 /** Register routes against a fake server and return a path→route lookup. */
 function setup(overrides: Overrides = {}, config: ConfigOverrides = {}) {
   const webServer = fakeWebServer()
@@ -618,14 +624,14 @@ test('/config does not type-check free-form values (current contract)', async ()
 // Pool
 // ---------------------------------------------------------------------------
 
-test('/pool/complete-add validates the code and maps pool success/failure', async () => {
-  const beginState = { ok: false, phase: 'failed', code: 'BAD_CODE' }
+test('/pool/complete-add validates the code and maps the primary sign-in result', async () => {
+  const failState = { ok: false, phase: 'failed', code: 'BAD_CODE' }
   const pool = poolDouble()
   const s = setup({
     pool: pool.pool,
     poolAuth: {
       status: () => ({ phase: 'idle' }),
-      submitCode: async () => beginState,
+      submitCode: async () => failState,
     },
   })
 
@@ -653,14 +659,14 @@ test('/pool/complete-add returns 200 and the pool snapshot when the login comple
   assert.deepEqual(pool.callsTo('getPoolData'), [[]])
 })
 
-test('/pool/begin-add / cancel-add forward to the pool auth flow and map begin failure to 500', async () => {
+test('/pool/begin-add / cancel-add re-sign-in the primary account and map begin failure to 500', async () => {
   const begun: unknown[][] = []
   const cancelled: unknown[][] = []
   const s = setup({
     getConfig: () => ({ ...BASE_CONFIG, proxyUrl: '' }),
     poolAuth: {
       status: () => ({ phase: 'idle' }),
-      begin: async (...args: unknown[]) => {
+      beginPrimary: async (...args: unknown[]) => {
         begun.push(args)
         return { ok: false, phase: 'failed', code: 'NOPE' }
       },
@@ -671,10 +677,10 @@ test('/pool/begin-add / cancel-add forward to the pool auth flow and map begin f
     },
   })
 
-  const failed = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('POST', '/', { alias: 'a', proxyUrl: 'http://p:1' }))
+  const failed = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('POST', '/', { alias: 'ignored', proxyUrl: 'http://p:1' }))
   assert.equal(failed.status(), 500)
   assert.deepEqual(failed.json(), { ok: false, phase: 'failed', code: 'NOPE' })
-  assert.deepEqual(begun, [['a', 'http://p:1']])
+  assert.deepEqual(begun, [['http://p:1']], 'only the primary account can be signed in again')
 
   const cancel = await invoke(s.route('/plugins/agy-link/pool/cancel-add'), fakeReq('POST', '/', {}))
   assert.equal(cancel.status(), 200)
@@ -688,7 +694,7 @@ test('/pool/begin-add falls back to the configured proxy and trims the body valu
     getConfig: () => ({ ...BASE_CONFIG, proxyUrl: ' http://cfg-proxy:9 ' }),
     poolAuth: {
       status: () => ({ phase: 'idle' }),
-      begin: async (...args: unknown[]) => {
+      beginPrimary: async (...args: unknown[]) => {
         begun.push(args)
         return { ok: true, phase: 'pending' }
       },
@@ -696,16 +702,16 @@ test('/pool/begin-add falls back to the configured proxy and trims the body valu
   })
   const trimmed = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('POST', '/', { proxyUrl: '  http://body-proxy:1  ' }))
   assert.equal(trimmed.status(), 200)
-  assert.deepEqual(begun[0], [undefined, 'http://body-proxy:1'])
+  assert.deepEqual(begun[0], ['http://body-proxy:1'])
 
   const fromConfig = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('POST', '/', {}))
   assert.equal(fromConfig.status(), 200)
-  assert.deepEqual(begun[1], [undefined, 'http://cfg-proxy:9'])
+  assert.deepEqual(begun[1], ['http://cfg-proxy:9'])
 })
 
-test('/pool/refresh-quota refreshes one known account and tolerates unknown ids', async () => {
-  const acc = { id: 'known' }
-  const pool = poolDouble({ getAccount: (id: unknown) => (id === 'known' ? acc : undefined) })
+test('/pool/refresh-quota refreshes the primary account and its catalog', async () => {
+  const acc = { id: 'acc_primary', alias: 'Primary' }
+  const pool = poolDouble({ getPrimaryAccount: () => acc })
   const quotaRefreshes: unknown[][] = []
   const catalogCalls: unknown[][] = []
   const s = setup({
@@ -714,7 +720,6 @@ test('/pool/refresh-quota refreshes one known account and tolerates unknown ids'
       refreshAccountQuota: async (...args: unknown[]) => {
         quotaRefreshes.push(args)
       },
-      refreshAllQuotas: async () => undefined,
     },
     catalog: {
       get: () => ({ source: 'fallback', models: [], lastError: null }),
@@ -725,35 +730,31 @@ test('/pool/refresh-quota refreshes one known account and tolerates unknown ids'
     },
   })
 
-  const known = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(known.status(), 200)
-  assert.deepEqual(quotaRefreshes, [[acc, true]])
-
-  const unknown = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'ghost' }))
-  assert.equal(unknown.status(), 200)
-  assert.deepEqual(quotaRefreshes, [[acc, true]], 'unknown id refreshes nothing')
-  assert.deepEqual(catalogCalls, [['known'], ['ghost']])
+  const captured = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'ignored' }))
+  assert.equal(captured.status(), 200)
+  assert.deepEqual(captured.json(), { ok: true, pending: true, alreadyRunning: false, pool: POOL_DATA })
+  await settle()
+  assert.deepEqual(quotaRefreshes, [[acc, true]], 'the primary account is the only refresh target')
+  assert.deepEqual(catalogCalls, [['acc_primary']], 'a manual refresh also re-reads the primary catalog')
 })
 
 test('/pool/refresh-quota reports a duplicate click instead of silently doing nothing', async () => {
-  // WHY: the route dedupes by key for up to QUOTA_REFRESH_DEDUP_MS. A click that
-  // lands inside that window used to answer exactly like a fresh start, so a
-  // slow pool looked frozen ("I clicked and the second account never moved").
+  // WHY: the route dedupes until the work settles (or QUOTA_REFRESH_DEDUP_MS).
+  // A click that lands inside that window used to answer exactly like a fresh
+  // start, so a slow refresh looked frozen.
   let release: (() => void) | null = null
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
   const started: string[] = []
   const acc = { id: 'inflight-acct' }
-  const pool = poolDouble({ getAccount: (id: unknown) => (id === 'inflight-acct' ? acc : undefined) })
   const s = setup({
-    pool: pool.pool,
+    pool: poolDouble({ getPrimaryAccount: () => acc }).pool,
     quota: {
       refreshAccountQuota: async () => {
         started.push('pipeline')
         await gate
       },
-      refreshAllQuotas: async () => undefined,
     },
     catalog: {
       get: () => ({ source: 'fallback', models: [], lastError: null }),
@@ -762,14 +763,20 @@ test('/pool/refresh-quota reports a duplicate click instead of silently doing no
     },
   })
 
-  const first = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'inflight-acct' }))
-  const second = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'inflight-acct' }))
+  const first = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
+  const second = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
   assert.equal(first.status(), 200)
   assert.equal((first.json() as Record<string, unknown>).alreadyRunning, false)
   assert.equal((second.json() as Record<string, unknown>).alreadyRunning, true, 'the duplicate click must be reported as such')
-  await new Promise((resolve) => setImmediate(resolve))
+  await settle()
   assert.deepEqual(started, ['pipeline'], 'a duplicate click must never stack a second pipeline')
+
   release!()
+  await settle()
+  const third = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
+  assert.equal((third.json() as Record<string, unknown>).alreadyRunning, false, 'a settled refresh unlocks the next click')
+  await settle()
+  assert.deepEqual(started, ['pipeline', 'pipeline'])
 })
 
 test('/status forwards the account ids the host is refreshing right now', async () => {
@@ -787,26 +794,25 @@ test('/status forwards the account ids the host is refreshing right now', async 
   assert.deepEqual((second.json() as Record<string, unknown>).quotaRefreshing, [])
 })
 
-test('/pool/refresh-quota decouples slow catalog.warmAccounts from quotaRefreshInFlight', async () => {
-  let releaseWarm: (() => void) | null = null
-  const warmGate = new Promise<void>((resolve) => {
-    releaseWarm = resolve
+test('/pool/refresh-quota keeps the dedupe lock while a slow catalog refresh runs', async () => {
+  let releaseCatalog: (() => void) | null = null
+  const catalogGate = new Promise<void>((resolve) => {
+    releaseCatalog = resolve
   })
   let refreshCalls = 0
-  let warmCalls = 0
+  let catalogCalls = 0
+  const acc = { id: 'acc_primary' }
   const s = setup({
-    pool: poolDouble({ getAccounts: () => [] }).pool,
+    pool: poolDouble({ getPrimaryAccount: () => acc }).pool,
     quota: {
-      refreshAccountQuota: async () => undefined,
-      refreshAllQuotas: async () => { refreshCalls++ },
+      refreshAccountQuota: async () => { refreshCalls++ },
     },
     catalog: {
       get: () => ({ source: 'fallback', models: [], lastError: null }),
       getAllKnownModels: () => [],
-      forceRefresh: async () => undefined,
-      warmAccounts: async () => {
-        warmCalls++
-        await warmGate
+      forceRefresh: async () => {
+        catalogCalls++
+        await catalogGate
       },
     },
   })
@@ -814,18 +820,21 @@ test('/pool/refresh-quota decouples slow catalog.warmAccounts from quotaRefreshI
   const first = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
   assert.equal(first.status(), 200)
   assert.equal((first.json() as Record<string, unknown>).alreadyRunning, false)
-  // Let refreshAllQuotas + forceRefresh finish while warmAccounts stays pending.
-  await new Promise((resolve) => setImmediate(resolve))
-  await new Promise((resolve) => setImmediate(resolve))
+  await settle()
 
   const second = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
   assert.equal(second.status(), 200)
-  assert.equal((second.json() as Record<string, unknown>).alreadyRunning, false, 'slow catalog.warmAccounts must not keep quotaRefreshInFlight locked')
-  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal((second.json() as Record<string, unknown>).alreadyRunning, true, 'the catalog refresh is still part of the same pipeline')
+  await settle()
+  assert.equal(refreshCalls, 1, 'a slow catalog refresh must not stack a second quota pipeline')
+  assert.equal(catalogCalls, 1)
+
+  releaseCatalog!()
+  await settle()
+  const third = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
+  assert.equal((third.json() as Record<string, unknown>).alreadyRunning, false)
+  await settle()
   assert.equal(refreshCalls, 2)
-  assert.equal(warmCalls, 1, 'warmAccounts still deduplicates its own background run via catalogWarmInFlight')
-  releaseWarm!()
-  await new Promise((resolve) => setImmediate(resolve))
 })
 
 // ---------------------------------------------------------------------------
@@ -1085,36 +1094,45 @@ test('REGRESSION: /pool/refresh-quota answers immediately even when the quota pi
   // Before the fix the route awaited a 20s `agy /usage` spawn + several REST
   // calls, so the console's "同步中" kept spinning. The status poll (3s) is
   // what actually delivers fresh numbers, so the HTTP response must not wait.
-  let started = 0
-  const s = setup({
-    quota: {
-      refreshAccountQuota: async () => {
-        started++
-        await new Promise<void>(() => undefined) // deliberately never resolves
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    let started = 0
+    const acc = { id: 'acc_primary' }
+    const s = setup({
+      quota: {
+        refreshAccountQuota: async () => {
+          started++
+          await new Promise<void>(() => undefined) // deliberately never resolves
+        },
       },
-      refreshAllQuotas: async () => undefined,
-    },
-    catalog: {
-      get: () => ({ source: 'fallback', models: [], lastError: null }),
-      getAllKnownModels: () => [],
-      forceRefresh: async () => undefined,
-    },
-    pool: poolDouble({ getAccount: (id: unknown) => (id === 'hanging' ? { id: 'hanging' } : undefined) }).pool,
-  })
-  const startedAt = Date.now()
-  const res = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'hanging' }))
-  assert.equal(res.status(), 200)
-  assert.equal((res.json() as { pending?: boolean }).pending, true)
-  assert.equal(started, 1, 'the refresh still runs in the background')
-  assert.ok(Date.now() - startedAt < 1000, 'the HTTP response must not wait for the pipeline')
+      catalog: {
+        get: () => ({ source: 'fallback', models: [], lastError: null }),
+        getAllKnownModels: () => [],
+        forceRefresh: async () => undefined,
+      },
+      pool: poolDouble({ getPrimaryAccount: () => acc }).pool,
+    })
+    const startedAt = Date.now()
+    const res = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
+    assert.equal(res.status(), 200)
+    assert.equal((res.json() as { pending?: boolean }).pending, true)
+    assert.equal(started, 1, 'the refresh still runs in the background')
+    assert.ok(Date.now() - startedAt < 1000, 'the HTTP response must not wait for the pipeline')
 
-  // A second click on the same account must not stack a duplicate pipeline.
-  const again = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'hanging' }))
-  assert.equal(again.status(), 200)
-  assert.equal(started, 1, 'in-flight refresh is deduped')
+    // A second click while the primary refresh is in flight must not stack a
+    // duplicate pipeline.
+    const again = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
+    assert.equal(again.status(), 200)
+    assert.equal((again.json() as { alreadyRunning?: boolean }).alreadyRunning, true)
+    assert.equal(started, 1, 'in-flight refresh is deduped')
+  } finally {
+    // Release the module-level in-flight entry so later tests start clean.
+    mock.timers.tick(QUOTA_REFRESH_DEDUP_MS + 1)
+    mock.timers.reset()
+  }
 })
 
-test('REGRESSION: quota dedupe outlives the old 30s race while its work still runs', async () => {
+test('REGRESSION: quota dedupe keeps a wedged refresh locked until the hard cap', async () => {
   // The first version raced the work against ROUTE_TIMEOUT_MS and deleted the
   // dedupe entry when the timer won — a second click then started a second
   // `agy /usage` pipeline on top of the first. The entry now belongs to the
@@ -1122,30 +1140,33 @@ test('REGRESSION: quota dedupe outlives the old 30s race while its work still ru
   mock.timers.enable({ apis: ['setTimeout'] })
   try {
     let started = 0
+    const acc = { id: 'acc_primary' }
     const s = setup({
       quota: {
         refreshAccountQuota: async () => {
           started++
           await new Promise<void>(() => undefined) // never settles
         },
-        refreshAllQuotas: async () => undefined,
       },
       catalog: {
         get: () => ({ source: 'fallback', models: [], lastError: null }),
         getAllKnownModels: () => [],
         forceRefresh: async () => undefined,
       },
-      pool: poolDouble({ getAccount: (id: unknown) => (id === 'slow' ? { id: 'slow' } : undefined) }).pool,
+      pool: poolDouble({ getPrimaryAccount: () => acc }).pool,
     })
     const route = s.route('/plugins/agy-link/pool/refresh-quota')
-    await invoke(route, fakeReq('POST', '/', { id: 'slow' }))
+    await invoke(route, fakeReq('POST', '/', {}))
     mock.timers.tick(31_000)
-    await invoke(route, fakeReq('POST', '/', { id: 'slow' }))
-    assert.equal(started, 1, 'no duplicate pipeline after 30s')
+    const dup = await invoke(route, fakeReq('POST', '/', {}))
+    assert.equal((dup.json() as { alreadyRunning?: boolean }).alreadyRunning, true, 'no duplicate pipeline after 30s')
+    assert.equal(started, 1)
     mock.timers.tick(QUOTA_REFRESH_DEDUP_MS + 1)
-    await invoke(route, fakeReq('POST', '/', { id: 'slow' }))
+    const retried = await invoke(route, fakeReq('POST', '/', {}))
+    assert.equal((retried.json() as { alreadyRunning?: boolean }).alreadyRunning, false)
     assert.equal(started, 2, 'a genuinely wedged refresh can be retried after the hard cap')
   } finally {
+    mock.timers.tick(QUOTA_REFRESH_DEDUP_MS + 1)
     mock.timers.reset()
   }
 })
@@ -1154,15 +1175,15 @@ test('REGRESSION: every route answers 500 when a dependency throws (no silent ha
   const s = setup({
     quota: {
       refreshAccountQuota: async () => { throw new Error('boom') },
-      refreshAllQuotas: async () => undefined,
     },
-    pool: poolDouble({ getAccount: () => ({ id: 'x' }) }).pool,
+    pool: poolDouble({ getPrimaryAccount: () => ({ id: 'x' }) }).pool,
   })
   // A background rejection is swallowed by the guarded runner, but the HTTP
   // response is still 200/pending — the important part is that it ENDS.
-  const res = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'x' }))
+  const res = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
   assert.equal(res.status(), 200)
   assert.equal((res.json() as { ok?: boolean }).ok, true)
+  await settle()
 })
 
 test('/config validates permissionMode enum and registerBridgeMcpConfig is idempotent', async () => {

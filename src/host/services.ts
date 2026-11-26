@@ -485,7 +485,7 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
   }
 
   return {
-    getConfig, log, notifyPicker, bin, version, resolveVersion, status, store, pool, quota, semaphore,
+    getConfig, log, notifyPicker, bin, version, resolveVersion, status, store, pool, quota, quotaRefresher, semaphore,
     catalog, auth, poolAuth, runs, adapter, acpPool, backgroundWakeup, setOverride, armForcedPlan: forcedPlan.arm,
     readEffortUnsupported: effortStore.read,
     rememberEffortUnsupported: effortStore.remember,
