@@ -16,6 +16,7 @@ import { DEFAULT_FALLBACK_MODELS } from '../src/common/types.ts'
 import { AccountPoolManager } from '../src/host/pool.ts'
 import { SessionStore } from '../src/host/sessions.ts'
 import { RunRegistry } from '../src/host/recording.ts'
+import { setAgyDbDir } from '../src/runtime/agy/db/paths.ts'
 import { classifyToolError } from '../src/host/recording.ts'
 import { defineAgyMirrorTool, parseMirrorInvocation } from '../src/host/mirror-tool.ts'
 import { stripNulBytes } from '../src/host/runner.ts'
@@ -33,6 +34,9 @@ const testHome = join(workDir, 'home')
 mkdirSync(testHome, { recursive: true })
 process.env.HOME = testHome
 process.env.USERPROFILE = testHome
+// db/paths.ts caches its AGY_DB_DIR at import time (before the HOME redirect
+// above could run), so point it at the isolated home explicitly.
+setAgyDbDir(join(testHome, '.gemini', 'antigravity-cli', 'conversations'))
 
 function msg(role: 'user' | 'assistant' | 'system', text: string): Message {
   return { role, content: [{ type: 'text', text }] } as unknown as Message
