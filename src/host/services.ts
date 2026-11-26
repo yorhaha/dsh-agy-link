@@ -12,6 +12,7 @@ import { ModelCatalog } from './models.ts'
 import { RunRegistry } from './recording.ts'
 import { resolveAgyBin, probeProcess, parseVersion } from './runner.ts'
 import { supportsSshIsolation } from '../runtime/agy/env.ts'
+import { BackgroundRetention } from '../domain/background/retention.ts'
 import { SessionStore } from './sessions.ts'
 import { AccountPoolManager } from './pool.ts'
 import { AccountQuotaRefresher } from '../features/quota/freshness.ts'
@@ -305,10 +306,15 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
       restoringSlot = false
     }
   }
+  // Background work and the ACP pool share one lease registry: the watcher
+  // acquires leases, the pool reads the same view, and neither side calls the
+  // other's API.
+  const backgroundRetention = new BackgroundRetention()
   const acpPool = new AcpSessionPool({
     bin,
     cfg: getConfig,
     log,
+    retention: backgroundRetention,
     // A drained process that ran out of budget is killed mid-flight; say so in
     // the conversation instead of letting the background task vanish silently.
     onDrainExpired: (info) => {
@@ -339,7 +345,7 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
     getConfig,
     log,
     getActiveRun: (sessionId) => adapter.getActiveRun(sessionId),
-    retainAcpSession: (sid, sessionKey) => acpPool.retainSession(sid, sessionKey),
+    retention: backgroundRetention,
     isArchived: (sessionId) => {
       try {
         const reg = safeCtxGet<{ archivedSessionIds?: Iterable<string> | { has?: (id: string) => boolean } }>(ctx, 'workspaceRegistry')

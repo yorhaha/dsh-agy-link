@@ -8,7 +8,6 @@
     "setCatalog",
     "catalogForAccount",
     "canCutOnTool",
-    "retainAcpSession",
     "onQuotaExhausted",
     "avoidAccountIds"
   ],
@@ -23,12 +22,6 @@
     },
     "src/features/acp/run-attempt.ts": {
       "onQuotaExhausted": 1
-    },
-    "src/features/background/acp-watch.ts": {
-      "retainAcpSession": 3
-    },
-    "src/features/background/watcher.ts": {
-      "retainAcpSession": 3
     },
     "src/features/quota/pool-sweep.ts": {
       "healAuthFlagsFromQuota": 4
@@ -63,7 +56,6 @@
       "markAuthRequired": 2
     },
     "src/host/services.ts": {
-      "retainAcpSession": 1,
       "setCatalog": 1
     },
     "src/provider/account-selection.ts": {

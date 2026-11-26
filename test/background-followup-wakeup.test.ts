@@ -10,6 +10,7 @@ import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { resolveConfig } from '../src/common/config.ts'
 import { defaultConfig } from '../src/common/types.ts'
 import { extractAttemptBackgroundSignals, isBackgroundWakeupNotice, matchesTimerCondition } from '../src/features/background/schedule-parse.ts'
+import { BackgroundRetention } from '../src/domain/background/retention.ts'
 import { AcpSessionPool } from '../src/features/acp/pool.ts'
 import { BackgroundWakeWatcher } from '../src/features/background/watcher.ts'
 import { setAgyDbDir } from '../src/runtime/agy/db/paths.ts'
@@ -752,7 +753,7 @@ describe('cross-turn background wakeup, slice 3: ACP session retention and post-
       // followup; the mechanical tool notice keeps its normal grace window.
       acpToolGraceMs: 0,
       acpReportSilenceMs: 25,
-      retainAcpSession: () => { retained += 1; return () => { released += 1 } },
+      retention: { acquire: () => { retained += 1; return { release: () => { released += 1 } } } },
       resolveAgent: async () => ({
         status: 'idle',
         inbox: { nextTurn: [] },
@@ -822,7 +823,7 @@ describe('cross-turn background wakeup, slice 3: ACP session retention and post-
       getConfig: () => ({ ...defaultConfig(), backgroundWakeup: true }),
       coalesceMs: 25,
       acpReportSilenceMs: 25,
-      retainAcpSession: () => () => {},
+      retention: { acquire: () => ({ release: () => {} }) },
       resolveAgent: async () => ({
         status: 'idle',
         inbox: { nextTurn: [] },
@@ -857,10 +858,12 @@ describe('cross-turn background wakeup, slice 3: ACP session retention and post-
   test('an idle sweep keeps the process of a retained session and closes the others', () => {
     const closed: string[] = []
     const procs: Array<{ name: string; open: Set<string>; lastUsedAt: number; isAlive: () => boolean; close: () => void; hasOpenSession: (sid: string) => boolean; sessionCount: number }> = []
+    const retention = new BackgroundRetention()
     const pool = new AcpSessionPool({
       bin: () => 'agy',
       cfg: () => defaultConfig(),
       idleTtlMs: 1_000,
+      retention,
       createProcess: ((opts: { agent?: string }) => {
         const p = {
           name: opts.agent ?? 'p',
@@ -882,13 +885,13 @@ describe('cross-turn background wakeup, slice 3: ACP session retention and post-
       const idle = pool.acquireProcess({ bin: 'agy', cwd: '.', mode: 'skip', sandbox: false, agent: 'idle' })
       ;(busy as unknown as { open: Set<string> }).open.add('sid-busy')
 
-      const release = pool.retainSession('sid-busy')
+      const lease = retention.acquire('sid-busy')
       // Both processes are past the idle TTL; only the unpinned one may go.
       assert.equal(pool.evictIdle(Date.now() + 60_000), 1)
       assert.deepEqual(closed, ['idle'])
       assert.equal((idle as unknown as { isAlive: () => boolean }).isAlive(), true)
 
-      release()
+      lease.release()
       assert.equal(pool.evictIdle(Date.now() + 60_000), 1)
       assert.deepEqual(closed, ['idle', 'busy'])
     } finally {
@@ -902,7 +905,7 @@ describe('cross-turn background wakeup, slice 3: ACP session retention and post-
     const watcher = new BackgroundWakeWatcher({
       getConfig: () => ({ ...defaultConfig(), backgroundWakeup: true }),
       coalesceMs: 25,
-      retainAcpSession: () => { retained += 1; return () => {} },
+      retention: { acquire: () => { retained += 1; return { release: () => {} } } },
       resolveAgent: async () => ({ status: 'idle', inbox: { nextTurn: [] }, followup: () => {} }),
     })
     try {

@@ -110,19 +110,20 @@ revocation signal and remove the remaining edge.
 
 Evidence:
 
-* `BackgroundWakeWatcher` retains ACP sessions through `retainAcpSession`; the
-  pool's idle eviction must respect that retention
-  (`src/host/services.ts`, `src/features/background/*`,
-  `src/features/acp/pool.ts`);
+* background work acquires a `BackgroundRetention` lease and the ACP pool only
+  reads the same `RetentionView` when deciding whether a process is idle
+  (`src/domain/background/retention.ts`,
+  `src/features/background/acp-watch.ts`, `src/features/acp/pool.ts`); the two
+  sides share state through the injected registry instead of calling each
+  other;
 * subagent quota exhaustion calls quota failover, which cools the account and
   can kill the main run (`src/features/subagent/tracker.ts`,
   `src/provider/quota-failover.ts`).
 
-Tracked bridge symbols: `retainAcpSession`, `onQuotaExhausted`.
+Tracked bridge symbol: `onQuotaExhausted`.
 
-Target: the watcher acquires a time-bounded retention lease; the pool only reads
-the lease view. Background activity emits quota evidence instead of directly
-driving settlement.
+Target: background activity emits quota evidence instead of directly driving
+settlement. The retention half is done.
 
 ## Residual single-account scheduling
 
@@ -154,4 +155,4 @@ Rules:
    new uses of the known bridges visible. `scripts/check-architecture.mjs`
    remains the import-cycle and direction gate.
 
-Current baseline: **21 files / 70 references / 9 tracked symbols**.
+Current baseline: **19 files / 63 references / 8 tracked symbols**.

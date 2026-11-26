@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { PermissionMode, PluginConfig } from '../../common/types.ts'
+import { BackgroundRetention } from '../../domain/background/retention.ts'
 import { slotGuardStats } from '../../domain/credentials/guards.ts'
 import { AcpProcess, type AcpProcessOptions } from './client.ts'
 import { realStrayDeps, reapStrayAcpProcesses, type StrayDeps } from './strays.ts'
@@ -62,6 +63,12 @@ export interface AcpPoolOptions {
   /** Called when the last live or draining process is gone. */
   onIdle?: () => void
   /**
+   * Shared retention registry. Background work acquires leases there; the pool
+   * only reads the view and reacts to releases. Omitted means a private
+   * registry (standalone use and unit tests).
+   */
+  retention?: BackgroundRetention
+  /**
    * Process-table hooks for the stray `agy acp` reaper. `null` disables the
    * sweep (unit tests never signal a real pid); omitted means "real machine".
    */
@@ -85,16 +92,11 @@ interface DrainingEntry {
   sessions: readonly AcpDrainSession[]
 }
 
-interface RetainedSession {
-  acpSessionId: string
-  sessionKey: string
-  count: number
-}
-
 export class AcpSessionPool {
   private readonly procs = new Map<string, AcpProcess>()
-  /** Retained sessions keyed by agy session id, remembering the DSH session. */
-  private readonly retainedSessions = new Map<string, RetainedSession>()
+  /** Leases held by background work; the pool only reads this view. */
+  private readonly retention: BackgroundRetention
+  private readonly unsubscribeRetention: () => void
   private readonly draining = new Map<string, DrainingEntry>()
   private readonly maxProcesses: number
   private readonly idleTtlMs: number
@@ -110,6 +112,10 @@ export class AcpSessionPool {
   constructor(private readonly opts: AcpPoolOptions) {
     this.maxProcesses = opts.maxProcesses ?? 4
     this.idleTtlMs = opts.idleTtlMs ?? 15 * 60_000
+    this.retention = opts.retention ?? new BackgroundRetention()
+    // A release is the moment a draining process may have lost its last reason
+    // to live; re-evaluate drains synchronously.
+    this.unsubscribeRetention = this.retention.subscribe(() => this.closeFinishedDrains())
     this.strays = opts.strays === undefined
       ? (process.env.NODE_TEST_CONTEXT === undefined ? realStrayDeps() : null)
       : opts.strays
@@ -347,39 +353,11 @@ export class AcpSessionPool {
     return evicted
   }
 
-  /**
-   * Hold a session open across turns so its background work can still report.
-   * `sessionKey` is the DSH session the user sees; drain notices need it
-   * because the agy session id means nothing to the transcript service.
-   */
-  retainSession(acpSessionId: string, sessionKey = ''): () => void {
-    if (acpSessionId === '') return () => {}
-    const cur = this.retainedSessions.get(acpSessionId)
-    if (cur) {
-      cur.count += 1
-      if (sessionKey !== '' && cur.sessionKey === '') cur.sessionKey = sessionKey
-    } else {
-      this.retainedSessions.set(acpSessionId, { acpSessionId, sessionKey, count: 1 })
-    }
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      const live = this.retainedSessions.get(acpSessionId)
-      if (live) {
-        if (live.count <= 1) this.retainedSessions.delete(acpSessionId)
-        else live.count -= 1
-      }
-      this.closeFinishedDrains()
-    }
-  }
-
   private hasRetainedSession(proc: AcpProcess): boolean {
-    if (this.retainedSessions.size === 0) return false
     const fn = (proc as unknown as { hasOpenSession?: (sid: string) => boolean }).hasOpenSession
     if (typeof fn !== 'function') return false
-    for (const sid of this.retainedSessions.keys()) {
-      if (proc.hasOpenSession(sid)) return true
+    for (const entry of this.retention.entries()) {
+      if (proc.hasOpenSession(entry.acpSessionId)) return true
     }
     return false
   }
@@ -387,8 +365,10 @@ export class AcpSessionPool {
   /** Retained sessions that still have an open session on `proc`. */
   private sessionsOn(proc: AcpProcess): AcpDrainSession[] {
     const out: AcpDrainSession[] = []
-    for (const [sid, info] of this.retainedSessions) {
-      if (proc.hasOpenSession(sid)) out.push({ acpSessionId: sid, sessionKey: info.sessionKey })
+    for (const entry of this.retention.entries()) {
+      if (proc.hasOpenSession(entry.acpSessionId)) {
+        out.push({ acpSessionId: entry.acpSessionId, sessionKey: entry.sessionKey })
+      }
     }
     return out
   }
@@ -587,6 +567,7 @@ export class AcpSessionPool {
   }
 
   dispose(): void {
+    this.unsubscribeRetention()
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer)
       this.sweepTimer = null

@@ -31,7 +31,6 @@ const SYMBOLS = [
   // Kernel B: inference stream <-> tool mirror.
   'canCutOnTool',
   // Kernel C: background <-> ACP pool / quota failover.
-  'retainAcpSession',
   'onQuotaExhausted',
   // Residual multi-account scheduling (single-account teardown).
   'avoidAccountIds',

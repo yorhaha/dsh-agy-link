@@ -10,6 +10,7 @@
 // Split out of watcher.ts to keep both files inside the module size budget. The
 // watcher supplies the shared plumbing through `AcpWatchHost`.
 import type { BackgroundAttemptSettledInfo } from '../../common/background-types.ts'
+import type { RetentionSource } from '../../domain/background/retention.ts'
 import type { SessionWatchState } from './watch-state.ts'
 import type { WakeNoticeItem } from './schedule-parse.ts'
 
@@ -26,7 +27,7 @@ export interface AcpWatchHost {
   isArchived?(sessionKey: string): boolean
   presentAcpReport?: (sessionKey: string, text: string) => Promise<boolean | number>
   hasArmedGoal?: (sessionKey: string) => boolean | Promise<boolean>
-  retainAcpSession?: (sessionId: string, sessionKey: string) => () => void
+  readonly retention?: RetentionSource
   enqueueWake(st: SessionWatchState, item: WakeNoticeItem): void
   releaseAcp(st: SessionWatchState): void
   cancelMatchingScheduleTimers(st: SessionWatchState, item: WakeNoticeItem): void
@@ -74,7 +75,10 @@ export function attachAcpWatch(
     clearTimeout(st.acpIdleTimer)
     st.acpIdleTimer = null
   }
-  if (host.retainAcpSession) st.acpCleanups.push(host.retainAcpSession(sid, st.sessionKey))
+  if (host.retention) {
+    const lease = host.retention.acquire(sid, st.sessionKey)
+    st.acpCleanups.push(() => lease.release())
+  }
 }
 
 function onToolUpdate(

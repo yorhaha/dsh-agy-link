@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { defaultConfig } from '../src/common/types.ts'
+import { BackgroundRetention } from '../src/domain/background/retention.ts'
 import { AcpProcess, AcpSessionPool, runAcpAttempt } from '../src/features/acp/index.ts'
 import { extractAttemptBackgroundSignals } from '../src/features/background/schedule-parse.ts'
 import { BackgroundWakeWatcher } from '../src/features/background/watcher.ts'
@@ -203,6 +204,7 @@ function stubProc(sessions: string[] = []) {
 test('pool capacity eviction drains a retained process instead of killing its background work', () => {
   const procs: Array<ReturnType<typeof stubProc>> = []
   const closed: Array<{ sessions: readonly string[]; expired: boolean }> = []
+  const retention = new BackgroundRetention()
   const pool = new AcpSessionPool({
     bin: () => FIXTURE,
     cfg: () => defaultConfig(),
@@ -213,10 +215,11 @@ test('pool capacity eviction drains a retained process instead of killing its ba
       return p as never
     },
     onDrainClosed: (info) => { closed.push({ sessions: info.sessions, expired: info.expired }) },
+    retention,
   })
   try {
     const first = pool.acquireProcess({ bin: 'agy', cwd: process.cwd(), accountId: 'a1', mode: 'auto', sandbox: false, agent: '' })
-    const release = pool.retainSession('acp-bg-1')
+    const lease = retention.acquire('acp-bg-1')
     assert.ok(first.isAlive())
 
     pool.acquireProcess({ bin: 'agy', cwd: process.cwd(), accountId: 'a1', mode: 'skip', sandbox: false, agent: '' })
@@ -224,7 +227,7 @@ test('pool capacity eviction drains a retained process instead of killing its ba
     assert.equal(pool.status().drainingProcesses, 1)
     assert.equal(pool.status().activeProcesses, 1)
 
-    release()
+    lease.release()
     assert.equal(procs[0]!.closed, true)
     assert.equal(closed.length, 1)
     assert.deepEqual(closed[0]!.sessions, ['acp-bg-1'])
@@ -238,6 +241,7 @@ test('pool capacity eviction drains a retained process instead of killing its ba
 test('account switch drains retained processes and reports the expiry to the session', () => {
   const procs: Array<ReturnType<typeof stubProc>> = []
   const expired: Array<{ sessions: readonly string[]; reason: string }> = []
+  const retention = new BackgroundRetention()
   const pool = new AcpSessionPool({
     bin: () => FIXTURE,
     cfg: () => ({ ...defaultConfig(), backgroundWakeupTtlMinutes: 1 }),
@@ -247,10 +251,11 @@ test('account switch drains retained processes and reports the expiry to the ses
       return p as never
     },
     onDrainExpired: (info) => { expired.push({ sessions: info.sessions, reason: info.reason }) },
+    retention,
   })
   try {
     pool.acquireProcess({ bin: 'agy', cwd: process.cwd(), accountId: 'a1', mode: 'auto', sandbox: false, agent: '' })
-    pool.retainSession('acp-old')
+    retention.acquire('acp-old')
     assert.equal(pool.evictOtherAccounts('a2'), 1)
     assert.equal(procs[0]!.closed, false, 'the old account keeps running its background work')
     assert.equal(pool.status().drainingProcesses, 1)
@@ -410,7 +415,7 @@ test('a pure timer keeps the ACP session retained even with no background tool',
   const watcher = new BackgroundWakeWatcher({
     getConfig: () => cfg,
     resolveAgent: async () => ({ status: 'idle', inbox: { nextTurn: [] }, followup: () => {} }),
-    retainAcpSession: () => { retained++; return () => {} },
+    retention: { acquire: () => { retained++; return { release: () => {} } } },
   })
   try {
     const rec = new RunRecording()
@@ -747,7 +752,7 @@ test('the wakeup switch alone decides retention: transport=acp with wakeup off k
   const watcher = new BackgroundWakeWatcher({
     getConfig: () => cfg,
     resolveAgent: async () => ({ status: 'idle', inbox: { nextTurn: [] }, followup: () => {} }),
-    retainAcpSession: () => { retained++; return () => {} },
+    retention: { acquire: () => { retained++; return { release: () => {} } } },
   })
   try {
     const rec = new RunRecording()

@@ -9,6 +9,7 @@ import type {
   BackgroundWakeStatus,
 } from '../../common/background-types.ts'
 import type { PluginConfig } from '../../common/types.ts'
+import type { RetentionSource } from '../../domain/background/retention.ts'
 import { findBrainDir } from '../../runtime/agy/db/paths.ts'
 import { attachAcpWatch, noteAcpReport, type AcpWatchHost } from './acp-watch.ts'
 import { baselineSessionBrain, pollSessionBrainDir, type WatchedTaskLog } from './brain-poll.ts'
@@ -52,12 +53,8 @@ export interface BackgroundWakeWatcherOptions {
   resolveAgent: (sessionId: string) => Promise<AgentLike | null>
   isArchived?: (sessionId: string) => boolean
   getActiveRun?: (sessionId: string) => { isSettled: boolean } | undefined
-  /**
-   * Keep an ACP session retained so its background work can still report.
-   * `sessionKey` is the DSH session the transcript belongs to; drain notices
-   * need it because agy's own session id means nothing to the host.
-   */
-  retainAcpSession?: (sessionId: string, sessionKey: string) => () => void
+  /** Shared lease registry: background work acquires, the ACP pool reads. */
+  retention?: RetentionSource
   /**
    * 方案 A: write an ACP post-turn report straight into the session transcript.
    * Returns true when the host accepted it, in which case no model turn is
@@ -123,8 +120,8 @@ export class BackgroundWakeWatcher implements BackgroundTurnObserver, AcpWatchHo
     return this.opts.hasArmedGoal
   }
 
-  get retainAcpSession(): ((sessionId: string, sessionKey: string) => () => void) | undefined {
-    return this.opts.retainAcpSession
+  get retention(): RetentionSource | undefined {
+    return this.opts.retention
   }
 
   isArchived(sessionKey: string): boolean {
