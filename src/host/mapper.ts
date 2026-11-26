@@ -4,6 +4,8 @@
 // importers (src/provider/span.ts and the tests) are unchanged.
 export { EventMapper } from '../provider/mapper/event-mapper.ts'
 export type { EventMapperOptions } from '../provider/mapper/event-mapper.ts'
+export { ToolProjection } from '../provider/mapper/tool-projection.ts'
+export type { ToolProjectionOptions } from '../provider/mapper/tool-projection.ts'
 export {
   consumeToolBinding,
   expirePendingToolCalls,

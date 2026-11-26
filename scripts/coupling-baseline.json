@@ -83,7 +83,7 @@
       "advanceAccount": 5,
       "markAuthRequired": 1
     },
-    "src/provider/mapper/event-mapper.ts": {
+    "src/provider/mapper/tool-projection.ts": {
       "canCutOnTool": 6
     },
     "src/provider/quota-failover.ts": {

@@ -90,17 +90,21 @@ FR7 镜像        X    X
 
 Evidence:
 
-* `EventMapper` asks `canCutOnTool()` whether the `agy_tool` mirror is
-  registered/visible before deciding between a native tool card and inline
-  reasoning (`src/provider/mapper/event-mapper.ts`, `src/provider/span.ts`);
+* `ToolProjection` owns the cut decision and receives an optional read-only
+  liveness probe at the span boundary (`src/provider/mapper/tool-projection.ts`,
+  `src/provider/span.ts`); `EventMapper` consumes the projection and no longer
+  queries the host tools service while streaming;
 * `agy_tool` execution reads the `RunRecording` produced by the mapper/attempt
   (`src/provider/mirror/definition.ts`).
 
-Tracked bridge symbol: `canCutOnTool`.
+Tracked bridge symbol: `canCutOnTool` (now confined to `ToolProjection`).
 
 Target: a `ToolProjection` stage consumes a capability snapshot and emits either
-tool-card chunks or inline reasoning. The mapper stops querying the tools
-service; a one-way revocation signal preserves the mid-run safety check.
+tool-card chunks or inline reasoning. The mirror availability still gates cuts
+for mid-span safety (plugin disposal, `tools.restrict`, tools remount), but the
+probe is a host-injected capability read at the span boundary, not a back-call
+from the streaming mapper. A future host event could replace the probe with a
+revocation signal and remove the remaining edge.
 
 ## Kernel C — background ↔ ACP pool / quota
 

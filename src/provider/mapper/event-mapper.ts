@@ -18,7 +18,7 @@ import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { isAgyQuotaBannerLine, isNonConsumableResultError, type AgyEvent, type RawUsage } from '../../common/types.ts'
 import { type CompactionNotice, renderCompactionMarker } from '../../common/compaction.ts'
 import { type GoalContext, buildGoalCompleteToolCallBlock, buildPlanExitToolCallBlock } from '../../host/dsh-goal.ts'
-import { unwrapMcpTool } from '../../host/mirror-tool.ts'
+import { unwrapMcpTool } from '../mirror/args.ts'
 import { composeThinkingText } from './thoughts.ts'
 import {
   normalizeFileLinks,
@@ -32,6 +32,7 @@ import {
   suffixDelta,
 } from './text.ts'
 import { buildToolCallBlock } from './tool-block.ts'
+import { ToolProjection } from './tool-projection.ts'
 import { usageFromRaw } from './usage.ts'
 import type { ToolCallState } from './tool-calls.ts'
 import { formatRunningToolFallback } from './running-tool-fallback.ts'
@@ -43,12 +44,11 @@ export interface EventMapperOptions {
   /** Cut spans on completed tool steps (main turns). False for auxiliary calls. */
   cutOnTool: boolean
   /**
-   * Dynamic liveness check evaluated right before cutting a tool span.
-   * When provided and returning false (e.g. plugin disposing or `agy_tool`
-   * unregistered/restricted mid-span), the mapper suppresses tool-call cuts
-   * so DSH never fails with `Error: unknown tool "agy_tool"`.
+   * Cut-capability projection owned by the span driver. When omitted, a
+   * projection is built from `cutOnTool` alone (the standalone-mapper case).
+   * The mapper never queries the host tools service itself.
    */
-  canCutOnTool?: () => boolean
+  toolProjection?: ToolProjection
   /** Whether an earlier span of this run already streamed assistant text. */
   initialSawText?: boolean
   /**
@@ -128,19 +128,16 @@ export class EventMapper {
   private pendingWarnFrag = ''
   private readonly toolCallStates = new Map<string, ToolCallState>()
   private emittedCompactionNotice = false
+  private readonly projection: ToolProjection
 
   constructor(private readonly opts: EventMapperOptions) {
     this.sawTextStep = opts.initialSawText === true
+    this.projection = opts.toolProjection ?? new ToolProjection({ cutOnTool: opts.cutOnTool })
   }
 
   /** Whether a terminal finish chunk has been emitted. */
   get isFinished(): boolean {
     return this.finished
-  }
-
-  private canCutOnTool(): boolean {
-    if (!this.opts.cutOnTool) return false
-    return this.opts.canCutOnTool ? this.opts.canCutOnTool() : true
   }
 
   private formatAssistantText(text: string): string {
@@ -423,7 +420,7 @@ export class EventMapper {
           // step into the reasoning block; the completed step still cuts the
           // span with the real tool card below.
           if (
-            this.canCutOnTool() &&
+            this.projection.canCut &&
             !this.finished &&
             ev.state === 'ACTIVE' &&
             !this.pendingAnnounced.has(ev.stepKey)
@@ -444,7 +441,7 @@ export class EventMapper {
         }
         if (this.announcedTools.has(ev.stepKey)) return
         this.announcedTools.add(ev.stepKey)
-        if (!this.canCutOnTool()) return // auxiliary calls or unavailable agy_tool mirror: do not emit doomed tool-call
+        if (!this.projection.canCut) return // auxiliary calls or unavailable agy_tool mirror: do not emit doomed tool-call
         yield* this.flushBannerOnlyThoughts()
         yield* this.flushPendingEmbed()
         // Cut the span: close any open block, then one tool-call block.

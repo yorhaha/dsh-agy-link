@@ -12,7 +12,9 @@ import type { CompactionNotice } from '../common/compaction.ts'
 import type { RunRecording, RunRegistry } from '../host/recording.ts'
 import { EventMapper } from '../host/mapper.ts'
 import { readFullToolArgs, readStepThoughts } from '../host/agy-db.ts'
-import { getGitHeadContentAsync, unwrapMcpTool } from '../host/mirror-tool.ts'
+import { getGitHeadContentAsync } from './mirror/git-head.ts'
+import { unwrapMcpTool } from './mirror/args.ts'
+import { ToolProjection } from './mapper/tool-projection.ts'
 import type { GoalContext } from '../host/dsh-goal.ts'
 
 /** What the span driver needs from the adapter (nothing more). */
@@ -266,12 +268,19 @@ export async function* driveSpanBody(
     // pre-resolve them so diff cards and reasoning blocks render real content.
     const resolved = new Map<number, Record<string, unknown>>()
     const resolvedThoughts = new Map<number, string>()
-    const mapper = new EventMapper({
-      runId: rec.runId,
+    // The capability probe lives here, at the span boundary: EventMapper gets a
+    // ToolProjection and never reaches into the host tools service while it is
+    // streaming (kernel B in docs/architecture/coupling.md).
+    const projection = new ToolProjection({
       cutOnTool,
       ...(deps.isMirrorToolAvailable === undefined
         ? {}
-        : { canCutOnTool: () => cutOnTool && deps.isMirrorToolAvailable!(sessionId) }),
+        : { canCutOnTool: () => deps.isMirrorToolAvailable!(sessionId) }),
+    })
+    const mapper = new EventMapper({
+      runId: rec.runId,
+      cutOnTool,
+      toolProjection: projection,
       initialSawText: rec.sawTextBefore(from),
       useCodeWrapper,
       usage: rec,
