@@ -80,7 +80,7 @@ test('slash-bridge handles fork/restore/list, grill-me, learn --apply with trave
   nextRunResult = { ok: true, text: 'Side answer', conversationId: 'conv-branch', durationMs: 25 }
 })
 
-test('runAgyOnce handles headless deny on empty exit-0, structured_output, effort-refused retry, and model-not-recognized failover', async (t) => {
+test('runAgyOnce handles headless deny on empty exit-0, structured_output, effort-refused retry, and model-not-recognized refusal', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-oneshot-edge-'))
   const fakeBin = join(dir, 'fake-oneshot-agy.mjs')
   const logFile = join(dir, 'invocations.jsonl')
@@ -167,19 +167,18 @@ test('runAgyOnce handles headless deny on empty exit-0, structured_output, effor
   assert.equal(effLogs[0]!.args.includes('--effort'), true)
   assert.equal(effLogs[1]!.args.includes('--effort'), false)
 
-  // Case 4: model-not-recognized failover across pool accounts
+  // Case 4: a model-not-recognized refusal marks the model unsupported on the
+  // one account; with nowhere to replay, the refusal is surfaced as-is.
   writeFileSync(logFile, '')
   process.env.FAKE_ONESHOT_MODE = 'model-not-recognized'
   const pool = new AccountPoolManager(join(dir, 'pool-mnr'))
-  pool.getPrimaryAccount()
-  const firstAcc = pool.getAccounts()[0]!
+  const firstAcc = pool.getPrimaryAccount()
   const mnrRes = await runAgyOnce(
     { ...baseOneShotDeps, pool: () => pool },
     { prompt: 'hi', model: 'gemini-4-hydrogen' },
   )
-  assert.equal(mnrRes.ok, true, mnrRes.error)
-  assert.equal(mnrRes.text, 'served by account 2')
+  assert.equal(mnrRes.ok, false, 'no spare account can replay the refused model')
   const mnrLogs = readFileSync(logFile, 'utf8').trim().split('\n').filter(Boolean)
-  assert.equal(mnrLogs.length, 2)
+  assert.equal(mnrLogs.length, 1, 'one spawn, no replay')
   assert.equal(pool.isModelSupported(firstAcc, 'gemini-4-hydrogen'), false)
 })

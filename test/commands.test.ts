@@ -14,32 +14,24 @@ const baseDeps = {
   store: () => ({ all: () => ({}) }),
 }
 
-test('agy auth defaults to primary and selects existing accounts unambiguously', async () => {
+test('agy auth always targets the single primary account', async () => {
   const { AccountPoolManager } = await import('../src/host/pool.ts')
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const pool = new AccountPoolManager(mkdtempSync(join(tmpdir(), 'agy-cmd-auth-')))
-  const account = pool.getPrimaryAccount()
   let selected = ''
   const flow = {
     beginPrimary: async () => { selected = 'primary'; return { ok: true, url: 'https://example.com' } },
-    beginAccount: async (id: string) => { selected = id; return { ok: true, url: 'https://example.com' } },
     status: () => ({ phase: 'failed', code: 'identity_mismatch' }),
   }
   const def = agyCommandDefinition({ ...baseDeps, pool: () => pool, poolAuth: () => flow } as never)
   await def.handler({ rawInput: 'auth' } as never)
   assert.equal(selected, 'primary')
-  await def.handler({ rawInput: 'auth Backup Google account 3' } as never)
-  assert.equal(selected, account.id)
-  await def.handler({ rawInput: `auth ${account.id}` } as never)
-  assert.equal(selected, account.id)
-  assert.match((await def.handler({ rawInput: 'auth missing' } as never)).text ?? '', /not found/)
+  // A stray selector is harmless: there is only one account to sign in.
+  await def.handler({ rawInput: 'auth whatever' } as never)
+  assert.equal(selected, 'primary')
   assert.match((await def.handler({ rawInput: 'auth-status' } as never)).text ?? '', /identity_mismatch/)
-  const listing = await def.handler({ rawInput: 'pool' } as never)
-  assert.ok(listing.text?.includes(account.id))
-  pool.getPrimaryAccount()
-  assert.match((await def.handler({ rawInput: 'auth Backup Google account 3' } as never)).text ?? '', /Multiple accounts/)
 })
 
 // Issue #27: without input.hint, DSH composer drops `/agy <sub>` to plain chat.
@@ -49,41 +41,8 @@ test('agy command declares input hint so subcommands are intercepted', () => {
   assert.ok(def.input, 'CommandDefinition.input must be set')
   assert.match(def.input!.hint, /status/)
   assert.match(def.input!.hint, /workspace/)
-  assert.match(def.input!.hint, /enable-account/)
-  assert.match(def.input!.hint, /disable-account/)
-})
-
-test('agy enable-account and disable-account toggle account state and reflect in pool status', async () => {
-  const { AccountPoolManager } = await import('../src/host/pool.ts')
-  const { mkdtempSync } = await import('node:fs')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const dir = mkdtempSync(join(tmpdir(), 'agy-cmd-test-'))
-  const pool = new AccountPoolManager(dir)
-  const sec = pool.getPrimaryAccount()
-
-  const testDeps = {
-    ...baseDeps,
-    pool: () => pool,
-  }
-  const def = agyCommandDefinition(testDeps as never)
-
-  // Disable account
-  const disRes = await def.handler({ rawInput: `disable-account ${sec.id}` } as never)
-  assert.ok(disRes.text?.includes(`Disabled account ${sec.id}`))
-  assert.equal(pool.getAccount(sec.id)?.enabled, false)
-
-  // /agy pool shows Disabled status
-  const poolRes = await def.handler({ rawInput: 'pool' } as never)
-  assert.match(poolRes.text ?? '', /Status: ⏸️ Disabled/)
-
-  // Enable account
-  const enRes = await def.handler({ rawInput: `enable-account ${sec.id}` } as never)
-  assert.ok(enRes.text?.includes(`Enabled account ${sec.id}`))
-  assert.equal(pool.getAccount(sec.id)?.enabled, true)
-
-  const poolRes2 = await def.handler({ rawInput: 'pool' } as never)
-  assert.match(poolRes2.text ?? '', /Status: 🟢 Ready/)
+  assert.match(def.input!.hint, /refresh-quota/)
+  assert.doesNotMatch(def.input!.hint, /enable-account|disable-account|add-account|remove-account/)
 })
 
 test('agy goal commands manipulate session goal state', async () => {
@@ -243,7 +202,7 @@ test('agy import subcommand parses token and alias and calls poolAuth.importRefr
   assert.match(jsonRes.text ?? '', /成功导入凭据/)
 })
 
-test('agy config, status, models, use, refresh-quota and non-destructive auth-code commands work end-to-end', async () => {
+test('agy config, status, models, refresh-quota and non-destructive auth-code commands work end-to-end', async () => {
   const { AccountPoolManager } = await import('../src/host/pool.ts')
   const { mkdtempSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -327,23 +286,20 @@ test('agy config, status, models, use, refresh-quota and non-destructive auth-co
     const modelsOut = await def.handler({ rawInput: 'models' } as never)
     assert.match(modelsOut.text ?? '', /gemini-4-argon/)
 
-    const useOut = await def.handler({ rawInput: `use ${sec.id}` } as never)
-    assert.match(useOut.text ?? '', new RegExp(sec.id))
-
     await def.handler({ rawInput: 'refresh-quota' } as never)
     assert.equal(refreshForced, true, '/agy refresh-quota should pass force=true')
 
     const authCodeOut = await def.handler({ rawInput: 'auth-code 4/code123' } as never)
     assert.match(authCodeOut.text ?? '', /Logged in/)
-    assert.equal(storeCleared, false, 'auth-code must NOT wipe unrelated multi-account session bindings')
+    assert.equal(storeCleared, false, 'auth-code must NOT wipe session bindings')
 
-    assert.match((await def.handler({ rawInput: 'add-account BackupNew' } as never)).text ?? '', /BackupNew/)
-    assert.match((await def.handler({ rawInput: `clear-cooldown ${sec.id}` } as never)).text ?? '', /Cleared cooldown/)
-    assert.match((await def.handler({ rawInput: `remove-account ${sec.id}` } as never)).text ?? '', /Removed account/)
-    assert.match((await def.handler({ rawInput: 'remove-account' } as never)).text ?? '', /usage:/)
-    assert.match((await def.handler({ rawInput: 'enable-account' } as never)).text ?? '', /usage:/)
-    assert.match((await def.handler({ rawInput: 'use' } as never)).text ?? '', /usage:/)
-    assert.match((await def.handler({ rawInput: 'use missing_id' } as never)).text ?? '', /not found/)
+    assert.match((await def.handler({ rawInput: 'clear-cooldown' } as never)).text ?? '', /Cleared all cooldowns/)
+    assert.match((await def.handler({ rawInput: 'clear-cooldown google' } as never)).text ?? '', /google/)
+    assert.match((await def.handler({ rawInput: 'clear-cooldown bogus' } as never)).text ?? '', /Unknown model family/)
+    // Pool administration subcommands are gone: they fall through to the help text.
+    for (const gone of ['use missing_id', 'add-account BackupNew', 'remove-account', 'enable-account']) {
+      assert.match((await def.handler({ rawInput: gone } as never)).text ?? '', /\/agy/, gone + ' is no longer a command')
+    }
     assert.match((await def.handler({ rawInput: 'dispatch 0' } as never)).text ?? '', /无限等待/)
     assert.match((await def.handler({ rawInput: 'dispatch 999' } as never)).text ?? '', /999 分钟/)
     assert.match((await def.handler({ rawInput: 'parallel on' } as never)).text ?? '', /开启/)
@@ -530,20 +486,14 @@ test('commands normalize case, handle multi-word aliases, pick newest session bi
   assert.equal((await def.handler({ rawInput: 'WORKSPACE DEFAULT' } as never)).kind, 'success')
   assert.equal(overrides.workspaceRoot, '')
 
-  // Multi-word alias support across pool actions + quoted multi-token auth-code
-  assert.match((await def.handler({ rawInput: 'use Work Team Alpha claude' } as never)).text ?? '', new RegExp(mwAcc.id))
-  assert.equal(pool.getActiveAccountId('anthropic'), mwAcc.id)
-  const badFam = await def.handler({ rawInput: 'use Work Team Alpha badfam' } as never)
-  assert.equal(badFam.kind, 'error')
-  assert.match(badFam.text ?? '', /Unknown model family "badfam"/)
-  assert.match((await def.handler({ rawInput: 'disable-account Work Team Alpha' } as never)).text ?? '', /Disabled/)
-  assert.equal(pool.getAccount(mwAcc.id)?.enabled, false)
-  assert.match((await def.handler({ rawInput: 'enable-account Work Team Alpha' } as never)).text ?? '', /Enabled/)
-  assert.equal(pool.getAccount(mwAcc.id)?.enabled, true)
-  assert.match((await def.handler({ rawInput: 'clear-cooldown Work Team Alpha gemini' } as never)).text ?? '', /Cleared cooldown/)
+  // Quoted multi-token auth-code survives tokenization
   assert.match((await def.handler({ rawInput: 'auth-code "code part one"' } as never)).text ?? '', /Logged in/)
   assert.equal(authCodeSeen, 'code part one')
-  assert.match((await def.handler({ rawInput: 'remove-account Work Team Alpha' } as never)).text ?? '', new RegExp(`Removed account ${mwAcc.id}`))
+  // clear-cooldown now takes only a model family (no account selector)
+  assert.match((await def.handler({ rawInput: 'clear-cooldown anthropic' } as never)).text ?? '', /anthropic/)
+  const badFam = await def.handler({ rawInput: 'clear-cooldown badfam' } as never)
+  assert.equal(badFam.kind, 'error')
+  assert.match(badFam.text ?? '', /Unknown model family "badfam"/)
 
   // /agy session info picks newest binding by updatedAt and reports binding count
   const sessInfo = await def.handler({ rawInput: 'SESSION INFO', agent: { id: 'sess-1' } } as never)
