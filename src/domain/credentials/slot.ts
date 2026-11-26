@@ -10,6 +10,7 @@
 // imports host/wincred/oauth/net.
 
 import type { ManagedAccount } from '../../common/pool-types.ts'
+import { delay } from '../../common/async.ts'
 import {
   accountTokenFilePath,
   credentialFingerprint,
@@ -482,7 +483,7 @@ class SlotAcquire {
           `timed out waiting for ${primaryFastRunCount()} same-account run(s) to finish before switching the credential slot`,
         )
       }
-      await new Promise((r) => setTimeout(r, 200))
+      await delay(200)
     }
   }
 

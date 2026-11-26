@@ -2,9 +2,8 @@
 // Tails `<brainDir>/.system_generated/logs/transcript_full.jsonl` (falling back
 // to `transcript.jsonl` until the full log appears) and breaks infinite
 // RESOURCE_EXHAUSTED retry loops (including `/goal` Stop-hook continuations).
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { StringDecoder } from 'node:string_decoder'
 import {
   extractQuotaErrorModel,
   isTransientBurstRateLimit,
@@ -12,6 +11,7 @@ import {
   looksLikeTosViolation,
   parseResetDurationMs,
 } from '../../common/types.ts'
+import { createJsonlTail, fileSizeOrZero, readJsonlDelta, type JsonlTail } from './transcript-tail.ts'
 
 export interface SubagentQuotaExhaustedInfo {
   source: 'subagent-transcript' | 'parent-system-message' | 'tool-step' | 'parent-retry-loop'
@@ -27,15 +27,12 @@ export interface SubagentQuotaExhaustedInfo {
 const GENERIC_RETRY_THRESHOLD = 3
 const AUTHORITATIVE_RETRY_THRESHOLD = 2
 
-interface LogCursor {
+interface LogCursor extends JsonlTail {
   path: string
-  offset: number
-  decoder: StringDecoder
-  rest: string
 }
 
 function createLogCursor(path: string, offset = 0): LogCursor {
-  return { path, offset, decoder: new StringDecoder('utf8'), rest: '' }
+  return { path, ...createJsonlTail(offset) }
 }
 
 function resolveTranscriptPath(brainDir: string): { path: string; isFull: boolean } | null {
@@ -45,53 +42,6 @@ function resolveTranscriptPath(brainDir: string): { path: string; isFull: boolea
   const compact = join(logsDir, 'transcript.jsonl')
   if (existsSync(compact)) return { path: compact, isFull: false }
   return null
-}
-
-function fileSizeOrZero(filePath: string): number {
-  try {
-    const st = statSync(filePath)
-    return st.isFile() ? st.size : 0
-  } catch {
-    return 0
-  }
-}
-
-function readLogDelta(cursor: LogCursor): string[] {
-  let size: number
-  try {
-    const st = statSync(cursor.path)
-    if (!st.isFile()) return []
-    size = st.size
-  } catch {
-    return []
-  }
-  if (size < cursor.offset) {
-    cursor.offset = 0
-    cursor.decoder = new StringDecoder('utf8')
-    cursor.rest = ''
-  }
-  if (size === cursor.offset) return []
-
-  const length = size - cursor.offset
-  const buffer = Buffer.allocUnsafe(length)
-  let bytesRead = 0
-  try {
-    const fd = openSync(cursor.path, 'r')
-    try {
-      bytesRead = readSync(fd, buffer, 0, length, cursor.offset)
-    } finally {
-      closeSync(fd)
-    }
-  } catch {
-    return []
-  }
-  if (bytesRead <= 0) return []
-  cursor.offset += bytesRead
-
-  const chunk = cursor.rest + cursor.decoder.write(buffer.subarray(0, bytesRead))
-  const parts = chunk.split('\n')
-  cursor.rest = parts.pop() ?? ''
-  return parts.filter((line) => line.trim() !== '')
 }
 
 function isAuthoritativeParentQuota(text: string): boolean {
@@ -138,7 +88,7 @@ export class ParentQuotaMonitor {
       this.usingFull = resolved.isFull
       this.cursor = createLogCursor(resolved.path, 0)
     }
-    for (const line of readLogDelta(this.cursor)) {
+    for (const line of readJsonlDelta(this.cursor.path, this.cursor)) {
       let row: {
         step_index?: unknown
         source?: unknown

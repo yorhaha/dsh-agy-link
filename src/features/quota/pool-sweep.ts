@@ -16,6 +16,7 @@ import {
   type ManagedAccount,
 } from '../../common/pool-types.ts'
 import { QUOTA_FORCE_CONCURRENCY } from '../../common/timeouts.ts'
+import { delay } from '../../common/async.ts'
 import { staggerJitterMs } from '../../domain/quota/identity.ts'
 import { sweepAccountsByEgress } from './sweep.ts'
 
@@ -101,7 +102,7 @@ export async function sweepPoolQuotas(deps: PoolSweepDeps, force = false): Promi
       const acc = accounts[i]!
       await deps.refreshAccountQuota(acc, false).catch(() => null)
       if (i < accounts.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, staggerJitterMs()))
+        await delay(staggerJitterMs())
       }
     }
     // Any quota row newer than a flag already proves the login works, whoever
@@ -158,7 +159,7 @@ export async function reverifyFlaggedAccounts(deps: PoolSweepDeps): Promise<void
     // Still flagged ⇒ the login really is unusable: back off before the next try.
     if (deps.pool.getAccount(acc.id)?.authRequired) deps.pool.noteAuthReverifyAttempt(acc.id)
     if (i < targets.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, staggerJitterMs()))
+      await delay(staggerJitterMs())
     }
   }
 }

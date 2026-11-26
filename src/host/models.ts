@@ -2,6 +2,7 @@
 // Pure parsing, effort folding, and slug resolution live in ../domain/models/parse.ts.
 import { existsSync, readFileSync } from 'node:fs'
 import { writeFileAtomicSync } from '../common/atomic-write.ts'
+import { delay } from '../common/async.ts'
 import type { FallbackModelDef } from '../common/types.ts'
 import type { ManagedAccount } from '../common/pool-types.ts'
 import { accountHasArgon, isArgonModel } from '../common/pool-types.ts'
@@ -322,8 +323,8 @@ export class ModelCatalog {
     for (let i = 0; i < due.length; i++) {
       await this.refresh(due[i]!.id, false).catch(() => undefined)
       if (i < due.length - 1) {
-        const delay = this.options.staggerMs?.() ?? (process.env.NODE_TEST_CONTEXT !== undefined ? 0 : staggerJitterMs())
-        if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+        const pauseMs = this.options.staggerMs?.() ?? (process.env.NODE_TEST_CONTEXT !== undefined ? 0 : staggerJitterMs())
+        if (pauseMs > 0) await delay(pauseMs)
       }
     }
   }

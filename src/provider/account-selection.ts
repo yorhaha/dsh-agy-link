@@ -2,6 +2,7 @@
 // fallback, and the "why is nothing available" diagnostic.
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { Err, type PluginConfig } from '../common/types.ts'
+import { delay } from '../common/async.ts'
 import { modelFamilyOf, type ManagedAccount, type ModelFamily } from '../common/pool-types.ts'
 import { resolveModelSlug } from '../domain/models/parse.ts'
 import { isModelQuotaClear } from '../domain/accounts/selection.ts'
@@ -147,7 +148,7 @@ function crossFamilyFallback(
 async function waitForShortReset(pool: AccountPoolManager, family: ModelFamily, model?: string): Promise<ManagedAccount | undefined> {
   const countdown = pool.getEarliestAvailableCountdown?.(family) ?? pool.getEarliestResetCountdown(family)
   if (countdown === null || countdown <= 0 || countdown > 20_000) return undefined
-  await new Promise((r) => setTimeout(r, countdown + 250))
+  await delay(countdown + 250)
   return pool.selectAccount(family, model) ?? undefined
 }
 

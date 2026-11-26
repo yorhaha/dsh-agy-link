@@ -4,6 +4,7 @@
 // stale window, poll interval, lock payload and error types are unchanged.
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { delay } from '../../common/async.ts'
 import { AbortedWaitError, WaitTimeoutError } from './errors.ts'
 
 /**
@@ -102,7 +103,7 @@ export async function acquireCrossProcessSlotLock(
         if (deadline > 0 && Date.now() >= deadline) {
           throw new WaitTimeoutError('timed out waiting for cross-process slot lock')
         }
-        await new Promise((r) => setTimeout(r, pollMs))
+        await delay(pollMs)
         continue
       }
     }
@@ -140,6 +141,6 @@ export async function acquireCrossProcessSlotLock(
       throw new WaitTimeoutError('timed out waiting for cross-process slot lock')
     }
 
-    await new Promise((r) => setTimeout(r, pollMs))
+    await delay(pollMs)
   }
 }

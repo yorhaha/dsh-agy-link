@@ -14,6 +14,8 @@
 //     which keeps the burst profile "staggered" rather than "simultaneous".
 // The unattended background sweep passes concurrency 1 and therefore stays
 // exactly as serial as before.
+import { delay } from '../../common/async.ts'
+
 export interface SweepOptions<T> {
   /** Accounts sharing a key share an upstream egress and are scheduled together. */
   egressOf: (account: T) => string
@@ -23,8 +25,6 @@ export interface SweepOptions<T> {
   /** Max accounts refreshing at once within one egress (default 1 = serial). */
   concurrency?: number
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Run `items` with at most `limit` in flight, never starting two within `staggerMs`. */
 export async function runStaggered<T>(
@@ -47,7 +47,7 @@ export async function runStaggered<T>(
         const gap = staggerMs()
         if (gap > 0) {
           const wait = lastStart + gap - Date.now()
-          if (wait > 0) await sleep(wait)
+          if (wait > 0) await delay(wait)
         }
       }
       starting++

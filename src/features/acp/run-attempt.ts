@@ -6,6 +6,7 @@
 // blame a later healthy turn.
 import { readFile } from 'node:fs/promises'
 import type { ManagedAccount, ModelFamily } from '../../common/pool-types.ts'
+import { delay } from '../../common/async.ts'
 import {
   Err,
   extractAgyQuotaBanner,
@@ -191,7 +192,7 @@ async function runAcpPrompt(opts: {
     // per-call sample wins over the cumulative result envelope (context bug).
     if (usageTailer) {
       for (let attempt = 0; attempt < 4 && flushTranscriptUsage() === 0; attempt++) {
-        await new Promise((r) => setTimeout(r, 40))
+        await delay(40)
       }
     }
     let liveQf = quotaCtrl.failoverState()

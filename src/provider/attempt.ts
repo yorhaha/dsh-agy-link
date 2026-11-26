@@ -14,6 +14,7 @@ import { LlmError, type Message } from '@deepseek-ai/dsh-llm'
 import type { BackgroundTurnObserver } from '../common/background-types.ts'
 import type { AgyEvent, AgyTransportMode, PluginConfig } from '../common/types.ts'
 import type { AgyGenerateOptions } from '../common/protocol.ts'
+import { delay } from '../common/async.ts'
 import { createToolWatchdog, type ToolWatchdog } from './tool-watchdog.ts'
 import { Err, looksLikeTosViolation } from '../common/types.ts'
 import type { ManagedAccount, ModelFamily } from '../common/pool-types.ts'
@@ -477,7 +478,7 @@ export async function waitForRunSettle(run: { isSettled: boolean }, timeoutMs: n
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (run.isSettled) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await delay(50)
   }
   return run.isSettled
 }

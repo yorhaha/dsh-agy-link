@@ -9,6 +9,7 @@ import type {
   BackgroundWakeStatus,
 } from '../../common/background-types.ts'
 import type { PluginConfig } from '../../common/types.ts'
+import { delay } from '../../common/async.ts'
 import type { RetentionSource } from '../../domain/background/retention.ts'
 import { findBrainDir } from '../../runtime/agy/db/paths.ts'
 import { attachAcpWatch, noteAcpReport, type AcpWatchHost } from './acp-watch.ts'
@@ -493,7 +494,7 @@ export class BackgroundWakeWatcher implements BackgroundTurnObserver, AcpWatchHo
         if (typeof agent.whenIdle === 'function') {
           void Promise.race([
             agent.whenIdle(),
-            new Promise((r) => setTimeout(r, 2_000)),
+            delay(2_000),
           ]).then(() => this.tryDispatch(sessionKey)).catch(() => undefined)
         } else {
           this.scheduleDefer(st, 1_500)

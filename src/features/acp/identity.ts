@@ -8,6 +8,7 @@
 // proof available: `applyAuthResult: email=<addr>, authMethod=consumer` a few
 // seconds after start.
 import { looksLikeNetworkError } from '../../common/types.ts'
+import { delay } from '../../common/async.ts'
 import { readLogSlice } from '../../host/agy-log.ts'
 
 /** How long to wait for agy to print its resolved identity into the log. */
@@ -158,7 +159,7 @@ export async function awaitAuthEvidence(
   const deadline = Date.now() + probeMs
   let evidence = readAuthEvidenceFromLog(logFile)
   while (!evidence.authSeen && isAlive() && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 150))
+    await delay(150)
     evidence = readAuthEvidenceFromLog(logFile)
   }
   return evidence

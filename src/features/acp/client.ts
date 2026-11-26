@@ -2,6 +2,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { PermissionMode } from '../../common/types.ts'
+import { delay } from '../../common/async.ts'
 import { preemptAgyAutoUpdate } from '../../host/auto-updater.ts'
 import { killTree } from '../../runtime/agy/process.ts'
 import { consoleOutputEncoding, makeLineDecoder } from '../../runtime/agy/console.ts'
@@ -384,7 +385,7 @@ export class AcpProcess extends EventEmitter {
       const sid = typeof r.sessionId === 'string' && r.sessionId !== '' ? r.sessionId : sessionId
       this.rememberModels(sid, r)
       // Give the replay a moment to arrive before judging it.
-      if (replayed === 0) await new Promise((r2) => setTimeout(r2, 300))
+      if (replayed === 0) await delay(300)
       if (replayed === 0 && cachedReadTokens === 0) return null
       return { sessionId: sid, status: 'loaded' }
     } catch {

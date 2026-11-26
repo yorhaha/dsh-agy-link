@@ -1,9 +1,8 @@
 // Subagent Activity Tracker: monitors background subagents and task transcripts
 // in agy's brain directory, streaming real-time progress events into DSH's
 // reasoning channel so the user sees 1:1 what agy and its workers are doing.
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { StringDecoder } from 'node:string_decoder'
 import {
   extractQuotaErrorModel,
   isTransientBurstRateLimit,
@@ -15,6 +14,7 @@ import {
 import { findBrainDir } from '../../runtime/agy/db/paths.ts'
 import { TaskActivityTracker } from './task-activity.ts'
 import { ParentQuotaMonitor, type SubagentQuotaExhaustedInfo } from './parent-quota.ts'
+import { createJsonlTail, fileSizeOrZero, readJsonlDelta, type JsonlTail } from './transcript-tail.ts'
 import { attachSubagentTracker, detachSubagentTracker, SUBAGENT_LIVE_WINDOW_MS, type SubagentSnapshot, type SubagentSnapshotItem } from './live.ts'
 
 export type { SubagentQuotaExhaustedInfo }
@@ -50,66 +50,6 @@ function noteFailure(log: ((message: string) => void) | undefined, what: string,
   log?.(`subagent tracker: ${what} — ${String(err)}`)
 }
 
-interface TranscriptCursor {
-  /** Bytes of `transcript.jsonl` already consumed. */
-  offset: number
-  /** Incremental UTF-8 decoder so split multi-byte characters never corrupt. */
-  decoder: StringDecoder
-  /** Trailing partial line from the last read (the file ends without a newline). */
-  rest: string
-}
-
-function createTranscriptCursor(offset = 0): TranscriptCursor {
-  return { offset, decoder: new StringDecoder('utf8'), rest: '' }
-}
-
-function fileSizeOrZero(logPath: string): number {
-  try {
-    const st = statSync(logPath)
-    return st.isFile() ? st.size : 0
-  } catch {
-    return 0
-  }
-}
-
-function readTranscriptDelta(logPath: string, cursor: TranscriptCursor): string[] {
-  let size: number
-  try {
-    const st = statSync(logPath)
-    if (!st.isFile()) return []
-    size = st.size
-  } catch {
-    return []
-  }
-  if (size < cursor.offset) {
-    cursor.offset = 0
-    cursor.decoder = new StringDecoder('utf8')
-    cursor.rest = ''
-  }
-  if (size === cursor.offset) return []
-
-  const length = size - cursor.offset
-  const buffer = Buffer.allocUnsafe(length)
-  let bytesRead = 0
-  try {
-    const fd = openSync(logPath, 'r')
-    try {
-      bytesRead = readSync(fd, buffer, 0, length, cursor.offset)
-    } finally {
-      closeSync(fd)
-    }
-  } catch {
-    return []
-  }
-  if (bytesRead <= 0) return []
-  cursor.offset += bytesRead
-
-  const chunk = cursor.rest + cursor.decoder.write(buffer.subarray(0, bytesRead))
-  const parts = chunk.split('\n')
-  cursor.rest = parts.pop() ?? ''
-  return parts.filter((line) => line.trim() !== '')
-}
-
 export function extractAuthoritativeSubagentQuotaError(text: string, fromParentSystemMessage: boolean): boolean {
   if (!text) return false
   if (!looksLikeHardRateLimit(text) || isTransientBurstRateLimit(text) || looksLikeTosViolation(text)) {
@@ -133,7 +73,7 @@ interface TrackedSubagent {
   state?: string
   /** True once descriptor reached a non-active state (stop polling transcript). */
   terminal: boolean
-  cursor: TranscriptCursor
+  cursor: JsonlTail
   /** Lines consumed so far — the fallback step index when a row carries none. */
   lines: number
   startedAt: number; lastAt: number; lastAction: string
@@ -252,7 +192,7 @@ export class SubagentTracker {
   private active = false
   private polling = false
   private readonly pollIntervalMs: number
-  private parentCursor: TranscriptCursor = createTranscriptCursor()
+  private parentCursor: JsonlTail = createJsonlTail()
   private sessionKey: string
   setSessionKey(key: string): void { this.sessionKey = key }
   private parentLines = 0
@@ -271,7 +211,7 @@ export class SubagentTracker {
     this.conversationId = cid
     this.brainDir = null
     this.baselined = false
-    this.parentCursor = createTranscriptCursor()
+    this.parentCursor = createJsonlTail()
     this.parentLines = 0
     this.taskActivity.reset()
     this.parentQuota.reset()
@@ -306,7 +246,7 @@ export class SubagentTracker {
       }
       if (!this.brainDir) return
       const parentLog = join(this.brainDir, '.system_generated', 'logs', 'transcript.jsonl')
-      this.parentCursor = createTranscriptCursor(fileSizeOrZero(parentLog))
+      this.parentCursor = createJsonlTail(fileSizeOrZero(parentLog))
       this.taskActivity.baseline(this.brainDir)
       this.parentQuota.baseline(this.brainDir)
       this.scanSubagentsForConv(this.conversationId, true)
@@ -382,7 +322,7 @@ export class SubagentTracker {
   private pollParentTranscript(): void {
     if (!this.brainDir) return
     const logPath = join(this.brainDir, '.system_generated', 'logs', 'transcript.jsonl')
-    for (const line of readTranscriptDelta(logPath, this.parentCursor)) {
+    for (const line of readJsonlDelta(logPath, this.parentCursor)) {
       try {
         const o = JSON.parse(line) as {
           step_index?: unknown
@@ -490,7 +430,7 @@ export class SubagentTracker {
           brainDir: subBrainDir,
           state: rawState,
           terminal: !active,
-          cursor: createTranscriptCursor(initialOffset),
+          cursor: createJsonlTail(initialOffset),
           lines: 0,
           startedAt: descMtime, lastAt: descMtime,
           lastAction: active ? `已启动协同专员 (${typeName})` : `未保持运行 (${rawState ?? 'unknown'})`,
@@ -525,7 +465,7 @@ export class SubagentTracker {
 
   private pollSubagentTranscript(sub: TrackedSubagent, quotaOnly = false): void {
     const logPath = join(sub.brainDir, '.system_generated', 'logs', 'transcript.jsonl')
-    for (const line of readTranscriptDelta(logPath, sub.cursor)) {
+    for (const line of readJsonlDelta(logPath, sub.cursor)) {
       try {
         const o = JSON.parse(line) as {
           step_index?: unknown

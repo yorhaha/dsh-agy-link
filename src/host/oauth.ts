@@ -19,6 +19,7 @@ import { chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { writeFileAtomicSync } from '../common/atomic-write.ts'
+import { delay } from '../common/async.ts'
 import { agyFetch } from './net.ts'
 import { agyUserAgent } from '../domain/quota/identity.ts'
 
@@ -187,7 +188,7 @@ export async function refreshTokens(
     )
   } catch (err) {
     if (/invalid_grant/i.test(String(err))) {
-      await new Promise((r) => setTimeout(r, 500))
+      await delay(500)
       return toTokenSet(
         await postTokenForm({ grant_type: 'refresh_token', refresh_token: refreshToken }, proxyUrl, accountScope),
         refreshToken,

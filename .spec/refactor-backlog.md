@@ -12,7 +12,7 @@
 | 模块 | 行数（抽取前） | 可抽出的职责 | 状态 |
 | --- | --- | --- | --- |
 | `src/provider/mapper/event-mapper.ts` | 599 | `formatRunningToolFallback`（纯函数） | **已抽出** → `running-tool-fallback.ts`（575 行） |
-| `src/features/subagent/tracker.ts` | 599 | 日志尾部跟随与状态机可分离 | 待办 |
+| `src/features/subagent/tracker.ts` | 599 | 日志尾部跟随与状态机可分离 | **已抽出** → `transcript-tail.ts`（540 行） |
 | `src/features/background/watcher.ts` | 599 | 定时器调度与唤醒判定可分离 | 待办 |
 | `src/features/acp/pool.ts` | 599 | 驱逐策略（`shouldEvict` 一族）可独立 | 待办 |
 | `src/features/acp/client.ts` | 599 | JSON-RPC 帧收发可独立 | 待办 |
@@ -31,6 +31,6 @@
 
 ## 重复实现（比体积更该处理）
 
-- **`delay(ms[, signal])` 在 13 个文件里各写一遍**（`host/models`、`host/services`、`quota/freshness`、`acp/pool`、`acp/run-attempt`、`provider/mapper/event-mapper`、`provider/retry-policy`、`provider/failover-budget`、`common/pool-types`、`domain/quota/identity`、`client/mermaid-render`）。多数是 `new Promise(r => setTimeout(r, ms))`，但**并非全部等价**（部分带 `AbortSignal` 且 abort 后 resolve 而非 reject）。
-  - 收敛到 `src/common/async.ts` 的正确做法：先逐个确认语义（是否接受 signal、abort 后 resolve/reject、`ms <= 0` 是否立即返回），再统一；**不要**一次性替换成"最像的那个"。
-  - 优先级：中。属于一致性收益，不是缺陷。
+- **`delay(ms[, signal])` 收敛完成**：18 处纯 `new Promise(setTimeout)` 已统一到 `src/common/async.ts` 的 `delay(ms)`（含 `quota/sweep` 的本地 `sleep`、`subagent` 两条 JSONL tail 的重复读取循环 → `transcript-tail.ts`）。检查确认这些调用点全部不接受 `AbortSignal`；唯一带取消语义的 `abortableDelay` 仍留在 `src/provider/attempt.ts`，因为它需要 provider 专属的 `LlmError` 文案——不要把它折叠进 common。
+  - 语义约定：`delay(ms)` 与原始 `setTimeout` 一致，`ms <= 0` 仍让出一个宏任务；同步重试等待（`domain/credentials/backup.ts` 的 `sleepMs`）不属于 Promise 睡眠，保持原样。
+  - 优先级：已完成。

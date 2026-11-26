@@ -21,6 +21,7 @@ import {
   type CallbackHandle,
 } from './oauth.ts'
 import type { ManagedAccount } from '../common/pool-types.ts'
+import { delay } from '../common/async.ts'
 import type { AccountPoolManager } from './pool.ts'
 import type { QuotaService } from './quota.ts'
 import { detectSystemProxy, writeWindowsCredentialRaw } from './wincred.ts'
@@ -140,7 +141,7 @@ export class PoolAuthFlow {
           bindFailed = true
         },
       ),
-      new Promise((resolve) => setTimeout(resolve, 300)),
+      delay(300),
     ])
     if (bindFailed) {
       await listener.close().catch(() => undefined)

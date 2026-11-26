@@ -8,6 +8,7 @@
 // same as the former private methods on the adapter.
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Err, type AgyEvent } from '../common/types.ts'
+import { delay } from '../common/async.ts'
 import type { CompactionNotice } from '../common/compaction.ts'
 import type { RunRecording, RunRegistry } from '../host/recording.ts'
 import { EventMapper } from '../host/mapper.ts'
@@ -105,10 +106,10 @@ async function resolveEventThought(
   try {
     let th = await readStepThoughts(activeConvId, stepIdx, rec.accountHome)
     if (th === null && (ev.state === 'DONE' || (ev.usage?.thinking_tokens ?? 0) > 0 || ev.stepKind === 'thinking')) {
-      await new Promise((r) => setTimeout(r, 60))
+      await delay(60)
       th = await readStepThoughts(activeConvId, stepIdx, rec.accountHome)
       if (th === null) {
-        await new Promise((r) => setTimeout(r, 100))
+        await delay(100)
         th = await readStepThoughts(activeConvId, stepIdx, rec.accountHome)
       }
     }
@@ -166,7 +167,7 @@ async function resolveEventToolArgs(
     try {
       let full = await readFullToolArgs(activeConvId, stepIdx, rec.accountHome)
       if (full === null) {
-        await new Promise((r) => setTimeout(r, 50))
+        await delay(50)
         full = await readFullToolArgs(activeConvId, stepIdx, rec.accountHome)
       }
       if (full !== null && full.args !== undefined) {
