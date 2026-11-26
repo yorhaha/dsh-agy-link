@@ -68,7 +68,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 🎨 4 标签控制台 | 账号与配额 / 模型与编排 / 功能与界面 / 运行；窄屏抽屉 + 触控重排 |
+| 🎨 4 标签控制台 | 账号与配额 / 模型与编排 / 功能与界面 / 运行；侧边栏面板入口，应用式整页（图标+计数标签条、卡片重排、窄屏堆叠） |
 | 📋 模型目录与编排器 | 同步 agy 模型目录，允许清单（`selectedModels`）、并集路由（`poolWideCatalog`）、Planner / Executor 独立配置 |
 | 🛡️ 权限与桥接 | `skip` / `auto` / `accept-edits` / `plan`（`/aplan` 只读）与 `--sandbox`；`mcpBridge` 按会话步骤桥接 DSH 工具 |
 | ⚡ 双传输 | 默认持久 `agy acp` 会话池，流前异常回退 CLI；后台配额刷新避让活跃回合 |
@@ -112,7 +112,7 @@ dsh plugin --profile web add dsh-agy-link
 
 ## 配置
 
-所有配置键、环境变量、默认值只维护一份：[docs/CONFIGURATION.md](./docs/CONFIGURATION.md)。常用入口：`/plugin`、设置面板、`DSH_AGY_*` 环境变量、`~/.dsh/agy-link/runtime-overrides.json`（面板与 `/agy` 热修改写入处）。
+所有配置键、环境变量、默认值只维护一份：[docs/CONFIGURATION.md](./docs/CONFIGURATION.md)。常用入口：侧边栏 Antigravity 面板（主入口）、`/plugin`、`DSH_AGY_*` 环境变量、`~/.dsh/agy-link/runtime-overrides.json`（面板与 `/agy` 热修改写入处）。
 
 ---
 

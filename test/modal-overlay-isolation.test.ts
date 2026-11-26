@@ -184,7 +184,9 @@ test('REGRESSION: modal pins top edge, lets bottom adapt to tab height, and refr
 	assert.match(body, /scrollbar-gutter\s*:\s*stable/, 'scrollbar appearance across tabs must not shift header/tab layout horizontally')
 
 	const stylesSrc = readFileSync(join(root, 'src/client/styles.ts'), 'utf8')
-	assert.match(stylesSrc, /existing\.textContent\s*!==\s*GLOBAL_CSS/, 'hot-reloading the plugin must refresh the existing style node')
+	// Hot reload must compare the freshly-built sheet against the mounted node and
+	// rewrite it on a mismatch. The constant is FULL_CSS (GLOBAL_CSS + APP_CSS).
+	assert.match(stylesSrc, /existing\.textContent\s*!==\s*(?:FULL_CSS|GLOBAL_CSS)/, 'hot-reloading the plugin must refresh the existing style node')
 })
 
 test('REGRESSION: the phone tab strip scrolls instead of crushing its labels', () => {

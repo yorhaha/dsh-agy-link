@@ -11,11 +11,10 @@ import {
 import type { Translator } from '../hooks/useTranslation.ts';
 import { h } from '../react.ts';
 import type { CatalogModelView, StatusPayload } from '../status.ts';
-import { S } from '../styles.ts';
+import { agyGlyph, type AgyGlyphName } from '../agy-glyph.ts';
 import { Button } from '../ui/Button.ts';
 import { Row, rowCaption } from '../ui/Row.ts';
 import { segGroup } from '../ui/SegGroup.ts';
-import { Select } from '../ui/Select.ts';
 import { AccountsPanel, type AccountsPanelHandlers } from './AccountsPanel.ts';
 import { renderPoolWideCatalogRow } from './CatalogRows.ts';
 import { ModelsPanel } from './ModelsPanel.ts';
@@ -57,13 +56,14 @@ export interface ConsoleTabsProps {
 	setHiddenModels: (ids: ReadonlyArray<string>) => Promise<void>;
 }
 
-function sectionCard(key: string, title: string, children: unknown[], rightHead?: unknown): unknown {
-	return h('div', { key, style: S.sectionCard },
-		h('div', { style: S.sectionCardHead },
-			h('span', { style: S.sectionCardTitle }, title),
-			rightHead ?? null,
+function sectionCard(key: string, title: string, children: unknown[], rightHead?: unknown, icon?: AgyGlyphName): unknown {
+	return h('div', { key, className: 'agy2-card' },
+		h('div', { className: 'agy2-card-head' },
+			icon !== undefined ? h('span', { className: 'agy2-card-ico' }, agyGlyph(icon, 15)) : null,
+			h('span', { className: 'agy2-card-title' }, title),
+			rightHead !== undefined ? h('span', { className: 'agy2-card-right' }, rightHead) : null,
 		),
-		...children,
+		h('div', { className: 'agy2-card-body' }, ...children),
 	);
 }
 
@@ -89,30 +89,32 @@ export function renderConsoleTabBar(params: {
 	totalModels: number;
 }): unknown {
 	const { t, activeTab, onSelectTab, accountCount, visibleModels, totalModels } = params;
-	const tabs: Array<{ id: ConsoleTabId; label: string; badge?: string }> = [
-		{ id: 'accounts', label: t('tab.accounts'), badge: String(accountCount) },
+	const tabs: Array<{ id: ConsoleTabId; label: string; icon: AgyGlyphName; badge?: string }> = [
+		{ id: 'accounts', label: t('tab.accounts'), icon: 'globe', badge: String(accountCount) },
 		{
 			id: 'models',
 			label: t('tab.models'),
+			icon: 'star',
 			...(totalModels > 0 ? { badge: `${visibleModels}/${totalModels}` } : {}),
 		},
-		{ id: 'features', label: t('tab.features') },
-		{ id: 'runtime', label: t('tab.runtime') },
+		{ id: 'features', label: t('tab.features'), icon: 'zap' },
+		{ id: 'runtime', label: t('tab.runtime'), icon: 'power' },
 	];
-	return h('div', { className: 'agy-console-tabs', role: 'tablist', style: S.tabBar },
+	return h('div', { className: 'agy2-tabs agy-console-tabs', role: 'tablist' },
 		...tabs.map((tab) => {
 			const active = activeTab === tab.id;
 			return h('button', {
 				key: tab.id,
 				type: 'button',
 				role: 'tab',
+				className: 'agy2-tab',
 				'aria-selected': active,
 				'data-tab': tab.id,
-				style: active ? S.tabBtnActive : S.tabBtn,
 				onClick: () => onSelectTab(tab.id),
 			},
+				h('span', { className: 'agy2-tab-ico' }, agyGlyph(tab.icon, 15)),
 				h('span', null, tab.label),
-				tab.badge !== undefined ? h('span', { style: S.tabCount }, tab.badge) : null,
+				tab.badge !== undefined ? h('span', { className: 'agy2-tab-count' }, tab.badge) : null,
 			);
 		}),
 	);
@@ -121,11 +123,10 @@ export function renderConsoleTabBar(params: {
 function renderAccountsTab(p: ConsoleTabsProps): unknown {
 	const { t, status, pool, accounts, loadingAction, setCfg, setMode } = p;
 
-	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+	return h('div', { className: 'agy2-stack' },
 		p.addAccountSection,
-		h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px', gap: '8px', flexWrap: 'wrap' } },
-			h('span', { style: { fontWeight: 700, fontSize: '12.5px', color: 'var(--agy-text-primary)' } },
-				t('account.poolHeading', { count: accounts.length })),
+		h('div', { className: 'agy2-lede' },
+			h('span', { className: 'agy2-lede-title' }, t('account.poolHeading', { count: accounts.length })),
 		),
 		h(AccountsPanel, {
 			t, pool, accounts, accountModels: p.accountModels, loadingAction,
@@ -153,7 +154,7 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 					}, t('pool.roundRobin')),
 				]),
 			}),
-		]),
+		], undefined, 'refresh'),
 	);
 }
 
@@ -184,7 +185,7 @@ function renderDefaultEffortRow(p: ConsoleTabsProps): unknown {
 
 function renderModelsTab(p: ConsoleTabsProps): unknown {
 	const { t, status, catalogModels, hiddenModelSet, selectedModelSet, loadingAction, setCfg } = p;
-	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+	return h('div', { className: 'agy2-stack' },
 		sectionCard('model-catalog', t('section.modelCatalog'), [
 			renderPoolWideCatalogRow({ t, status, loadingAction, setCfg }),
 			h('div', { key: 'div', style: { borderTop: '1px solid var(--agy-border-divider)', paddingTop: '8px' } },
@@ -193,17 +194,17 @@ function renderModelsTab(p: ConsoleTabsProps): unknown {
 					setSelectedModels: p.setSelectedModels, setHiddenModels: p.setHiddenModels,
 				}),
 			),
-		]),
+		], undefined, 'star'),
 		sectionCard('thinking-orch', t('section.thinkingOrchestrator'), [
 			renderDefaultEffortRow(p),
 			...renderOrchestratorRows(t, status, catalogModels, loadingAction, setCfg, p.effortLabels),
-		]),
+		], undefined, 'zap'),
 	);
 }
 
 function renderFeaturesTab(p: ConsoleTabsProps): unknown {
 	const { t, status, loadingAction, setCfg } = p;
-	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+	return h('div', { className: 'agy2-stack' },
 		sectionCard('slash-commands', t('section.slashCommands'), [
 			h(Row, {
 				key: 'slash-direct',
@@ -215,21 +216,21 @@ function renderFeaturesTab(p: ConsoleTabsProps): unknown {
 				left: rowCaption(t('slash.metaTitle'), t('slash.metaDesc')),
 				right: h('code', { style: { fontSize: '11px', color: 'var(--agy-text-secondary)', wordBreak: 'break-word' } }, t('slash.metaList')),
 			}),
-		]),
+		], undefined, 'zap'),
 		sectionCard('ui-display', t('section.uiDisplay'), [
 			renderHeaderBadgeRow({ t, status, loadingAction, setCfg }),
-		]),
+		], undefined, 'star'),
 	);
 }
 
 function renderRuntimeTab(p: ConsoleTabsProps): unknown {
 	const { t, status, loadingAction, setCfg } = p;
-	return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+	return h('div', { className: 'agy2-stack' },
 		sectionCard('execution', t('section.execution'), [
 			h(RuntimeControlsSection, {
 				t, status, loadingAction, setCfg,
 			}),
-		]),
+		], undefined, 'power'),
 	);
 }
 
@@ -250,5 +251,5 @@ export function renderConsoleTabContent(p: ConsoleTabsProps): unknown {
 			: p.activeTab === 'runtime'
 				? renderRuntimeTab(p)
 				: renderAccountsTab(p);
-	return h('div', { style: { display: 'flex', flexDirection: 'column' } }, bar, body);
+	return h('div', { className: 'agy2-body' }, bar, h('div', { className: 'agy2-scroll' }, body));
 }

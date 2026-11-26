@@ -75,24 +75,26 @@ test('native-contract locale lifecycle registers, publishes switches, falls back
   plugin.apply(ctx)
   assert.deepEqual([...catalog.keys()], ['zh', 'en', 'pt-BR', 'es'])
   assert.equal(dictionaries.size, 4)
-  // conversation.session.header.actions + settings.section + plugins.bundle.config
+  // conversation.session.header.actions + sidebar.panellist (primary entry)
+  // + main (the console page keyed by the panel id) + plugins.bundle.config
   // + plugins.row.config + agy_tool + run_code toolviews
   // + conversation.chat.node(agy-acp-report) + conversation.chat.node(agy-acp-notice)
   // + 9 a-prefix direct commandviews
-  assert.equal(registeredSlots.length, 17)
+  assert.equal(registeredSlots.length, 18)
   assert.equal(registeredSlots[0]!.options.locale, 'agy-link')
   assert.equal(registeredSlots[1]!.options.id, 'agy-link')
-  assert.equal(registeredSlots[2]!.options.key, 'dsh-agy-link')
-  assert.equal(registeredSlots[3]!.options.key, 'dsh-agy-link#agy-link')
-  assert.equal(registeredSlots[4]!.options.id, 'agy-tool-view')
-  assert.equal(registeredSlots[5]!.options.id, 'agy-run-code-view')
+  assert.equal(registeredSlots[2]!.options.key, 'agy-link')
+  assert.equal(registeredSlots[3]!.options.key, 'dsh-agy-link')
+  assert.equal(registeredSlots[4]!.options.key, 'dsh-agy-link#agy-link')
+  assert.equal(registeredSlots[5]!.options.id, 'agy-tool-view')
+  assert.equal(registeredSlots[6]!.options.id, 'agy-run-code-view')
   // ACP channel cards: post-turn narration and channel notices are separate
   // chat-node keys, so the conversation can render each with its own card.
-  assert.equal(registeredSlots[6]!.options.name, 'conversation.chat.node')
-  assert.equal(registeredSlots[6]!.options.key, 'agy-acp-report')
   assert.equal(registeredSlots[7]!.options.name, 'conversation.chat.node')
-  assert.equal(registeredSlots[7]!.options.key, 'agy-acp-notice')
-  assert.equal(registeredSlots[8]!.options.name, 'conversation.chat.commandview')
+  assert.equal(registeredSlots[7]!.options.key, 'agy-acp-report')
+  assert.equal(registeredSlots[8]!.options.name, 'conversation.chat.node')
+  assert.equal(registeredSlots[8]!.options.key, 'agy-acp-notice')
+  assert.equal(registeredSlots[9]!.options.name, 'conversation.chat.commandview')
   const t = locale.bind('agy-link')
   locale.setLocale('pt-BR'); assert.equal(t('account.add'), 'Adicionar conta Google')
   locale.setLocale('es'); assert.equal(t('account.add'), 'Añadir cuenta de Google')
@@ -129,13 +131,15 @@ test('mounted panel subscribes to locale revisions and exposes localized accessi
     subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener) },
     setLocale(language: string) { active = language; listeners.forEach(listener => listener()) },
   }
-  plugin.apply({ locale, effect(callback: () => void) { callback() }, slots: { inject(_name: string, callback: () => void) { callback() }, register(opts: { id?: string }, registered: (props?: unknown) => unknown) {
-    if (opts?.id === 'agy-link') component = registered;
+  plugin.apply({ locale, effect(callback: () => void) { callback() }, slots: { inject(_name: string, callback: () => void) { callback() }, register(opts: { id?: string; key?: string }, registered: (props?: unknown) => unknown) {
+    // The sidebar entry is now just a glyph; the localized page is the `main`
+    // panel keyed by the sidebar id, so capture that one.
+    if (opts?.key === 'agy-link') component = registered;
     return () => {}
   } } })
   assert.ok(component)
   component!()
-  effects[0]!()
+  effects.forEach((effect) => effect())
   locale.setLocale('pt-BR')
   assert.equal(rerenders, 1)
   const rendered = component!() as { children: unknown[] }

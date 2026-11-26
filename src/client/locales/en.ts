@@ -2,6 +2,7 @@ import type { AgyDictionary } from './zh.ts'
 
 export const en: AgyDictionary = {
   'section.label': 'Antigravity', 'console.title': 'Antigravity Management Console',
+  'page.subtitle': 'Google Antigravity accounts, models and runtime settings',
   'code.title': 'Code', 'code.inspect': 'Inspect',
   'tv.command': 'Command', 'tv.write': 'Write', 'tv.edit': 'Edit', 'tv.read': 'Read', 'tv.search': 'Search', 'tv.webSearch': 'Web Search', 'tv.list': 'List', 'tv.delete': 'Delete', 'tv.tool': 'Tool',
   'tv.checklist': 'Checklist', 'tv.focus': 'Focus',
@@ -20,6 +21,7 @@ export const en: AgyDictionary = {
   'account.reauth': 'Sign in again', 'account.reauthing': 'Signing in...', 'account.reauthTitle': 'Re-authenticate this account in place (keeps alias, proxy and priority)',
   'status.proxy': 'Proxy', 'status.inUse': 'In use', 'account.predictedInUse': 'predicted',
   'account.add': 'Add Google account', 'account.aliasDefault': 'Backup Google account {number}', 'account.defaultAlias': 'Primary account (system sign-in)',
+  'account.rename': 'Rename',
   'account.renameTitle': 'Edit this account label',
   'account.renameEmpty': 'Account label must not be empty',
   'account.renamed': 'Account label updated',
@@ -157,6 +159,7 @@ export const en: AgyDictionary = {
   'config.off': 'Off',
   'config.defaultEffort': 'Default thinking effort',
   'config.defaultEffortDesc': 'auto = each model keeps its own default; a fixed level seeds the session model menu and can still be overridden per model',
+  'permission.label': 'Permission',
   'config.permissionMode': 'Permission mode',
   'config.permissionModeDesc': 'Tool approval policy for agy CLI (auto checks risky ops; skip runs unattended)',
   'config.modeSkip': 'Skip (unattended)',

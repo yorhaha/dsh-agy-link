@@ -3,18 +3,22 @@
 // variables while keeping the console readable in both light and dark modes.
 
 import { GLOBAL_CSS } from './global-css.ts';
+import { APP_CSS } from './console-app-css.ts';
+
+/** The full stylesheet: shared console tokens + the application page rules. */
+const FULL_CSS = GLOBAL_CSS + '\n' + APP_CSS;
 
 export function injectGlobalStyles(): void {
 	if (typeof document === 'undefined') return;
 	const styleId = 'dsh-agy-link-global-css';
 	const existing = document.getElementById(styleId);
 	if (existing !== null) {
-		if (existing.textContent !== GLOBAL_CSS) existing.textContent = GLOBAL_CSS;
+		if (existing.textContent !== FULL_CSS) existing.textContent = FULL_CSS;
 		return;
 	}
 	const st = document.createElement('style');
 	st.id = styleId;
-	st.textContent = GLOBAL_CSS;
+	st.textContent = FULL_CSS;
 	const host = document.head ?? document.documentElement;
 	if (host) host.appendChild(st);
 }

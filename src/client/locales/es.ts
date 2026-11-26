@@ -2,6 +2,7 @@ import type { AgyDictionary } from './zh.ts'
 
 export const es: AgyDictionary = {
   'section.label': 'Antigravity', 'console.title': 'Consola de administración de Antigravity',
+  'page.subtitle': 'Cuentas, modelos y ajustes de tiempo de ejecución de Google Antigravity',
   'code.title': 'Código', 'code.inspect': 'Inspeccionar',
   'tv.command': 'Comando', 'tv.write': 'Escribir', 'tv.edit': 'Editar', 'tv.read': 'Leer', 'tv.search': 'Buscar', 'tv.webSearch': 'Búsqueda web', 'tv.list': 'Listar', 'tv.delete': 'Eliminar', 'tv.tool': 'Herramienta',
   'tv.checklist': 'Lista de pasos', 'tv.focus': 'Enfoque',
@@ -20,6 +21,7 @@ export const es: AgyDictionary = {
   'account.reauth': 'Iniciar sesión de nuevo', 'account.reauthing': 'Iniciando...', 'account.reauthTitle': 'Reautenticar esta cuenta en su sitio (conserva alias, proxy y prioridad)',
   'status.proxy': 'Proxy', 'status.inUse': 'En uso', 'account.predictedInUse': 'previsto',
   'account.add': 'Añadir cuenta de Google', 'account.aliasDefault': 'Cuenta de Google de respaldo {number}', 'account.defaultAlias': 'Cuenta principal (inicio de sesión del sistema)',
+  'account.rename': 'Renombrar',
   'account.renameTitle': 'Editar la etiqueta de esta cuenta',
   'account.renameEmpty': 'La etiqueta no puede estar vacía',
   'account.renamed': 'Etiqueta actualizada',
@@ -157,6 +159,7 @@ export const es: AgyDictionary = {
   'config.off': 'Desactivado',
   'config.defaultEffort': 'Intensidad de razonamiento predeterminada',
   'config.defaultEffortDesc': 'auto = cada modelo usa su propio valor por defecto; un nivel fijo fija el valor inicial del menú de modelos de la sesión y aún puede sobrescribirse por modelo',
+  'permission.label': 'Permiso',
   'config.permissionMode': 'Modo de permisos',
   'config.permissionModeDesc': 'Política de aprobación de herramientas para agy CLI (auto revisa operaciones riesgosas; skip sin supervisión)',
   'config.modeSkip': 'Skip (sin pausa)',

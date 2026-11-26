@@ -9,6 +9,7 @@ import { useAgyTranslation, type LocaleLike, type Translator } from '../hooks/us
 import { useAccounts } from '../hooks/useAccounts.ts';
 import { useAuthFlow } from '../hooks/useAuthFlow.ts';
 import { useConfig } from '../hooks/useConfig.ts';
+import { agyGlyph } from '../agy-glyph.ts';
 import { agyIcon, uiIcon } from '../icons.ts';
 import { h, useEffect, useRef, useState } from '../react.ts';
 import { acquireOverlaySuspend } from '../scroll-guard.ts';
@@ -73,10 +74,14 @@ function useConsoleToast(): {
 export interface SettingsSectionProps {
 	isModal?: boolean;
 	onClose?: () => void;
+	/** 'card' (default) keeps the settings/plugins-console chrome; 'page' renders
+	 * a full sidebar page (large header, sticky tabs, scrollable body). */
+	layout?: 'card' | 'page';
 }
 
 export function createSettingsSection(locale: LocaleLike): (props?: SettingsSectionProps) => unknown {
 	return function AgySettingsSection(_props?: SettingsSectionProps): unknown {
+		const layout = _props?.layout ?? 'card';
 		const t = useAgyTranslation(locale);
 		const { status, refresh } = useAgyStatus();
 		const { toast, clearToast, showToast } = useConsoleToast();
@@ -125,31 +130,81 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 			);
 		}
 
+		const isAuthed = authPhase === 'ok' || accounts.length > 0;
+		const refreshAllBusy = loadingAction === 'refresh:all' || (status.quotaRefreshing?.length ?? 0) > 0;
+		const headerActions = {
+			onAdd: () => { selectTab('accounts'); auth.setAddingAccount(true); },
+			onRefreshAll: () => void accountActions.refreshQuota(),
+		};
+		const tabContent = renderConsoleTabContent({
+			t, activeTab, onSelectTab: selectTab, status, pool, accounts,
+			accountModels: status.accountModels, catalogModels,
+			hiddenModelSet: new Set(status.hiddenModels ?? []),
+			selectedModelSet: new Set(status.selectedModels ?? []),
+			loadingAction, effortLabels: effortLabels(t),
+			addAccountSection: renderAddAccountSection(t, auth, pool, loadingAction !== null, loadingAction),
+			proxyInputs, setProxyInputs, editingProxyId, setEditingProxyId,
+			aliasInputs, setAliasInputs, editingAliasId, setEditingAliasId,
+			expandedModels, toggleExpand, optimisticActiveByFamily,
+			accountHandlers: { ...accountActions, beginReauth: auth.handleBeginReauth },
+			setCfg: config.setCfg, setMode: config.setMode, setSelectedModels: config.setSelectedModels,
+			setHiddenModels: (ids: ReadonlyArray<string>) => config.setCfg('hiddenModels', [...ids]),
+		});
+
+		if (layout === 'page') {
+			// The page shell (ConsolePage) supplies the `.agy2-root` surface and the
+			// measured `data-narrow` flag; here we return only the app content.
+			return h('div', { className: 'agy2-surface' },
+				renderPageHeader(t, isAuthed, auth.addingAccount, loadingAction !== null, refreshAllBusy, headerActions),
+				h(Toast, { toast, onClose: clearToast, t }),
+				tabContent,
+			);
+		}
+
 		return h('div', { className: 'agy-console', style: S.container },
-			renderHeader(t, authPhase === 'ok' || accounts.length > 0, auth.addingAccount, loadingAction !== null,
-				loadingAction === 'refresh:all' || (status.quotaRefreshing?.length ?? 0) > 0,
-				{
-					onAdd: () => { selectTab('accounts'); auth.setAddingAccount(true); },
-					onRefreshAll: () => void accountActions.refreshQuota(),
-				},
-			),
+			renderHeader(t, isAuthed, auth.addingAccount, loadingAction !== null, refreshAllBusy, headerActions),
 			h(Toast, { toast, onClose: clearToast, t }),
-			renderConsoleTabContent({
-				t, activeTab, onSelectTab: selectTab, status, pool, accounts,
-				accountModels: status.accountModels, catalogModels,
-				hiddenModelSet: new Set(status.hiddenModels ?? []),
-				selectedModelSet: new Set(status.selectedModels ?? []),
-				loadingAction, effortLabels: effortLabels(t),
-				addAccountSection: renderAddAccountSection(t, auth, pool, loadingAction !== null, loadingAction),
-				proxyInputs, setProxyInputs, editingProxyId, setEditingProxyId,
-				aliasInputs, setAliasInputs, editingAliasId, setEditingAliasId,
-				expandedModels, toggleExpand, optimisticActiveByFamily,
-				accountHandlers: { ...accountActions, beginReauth: auth.handleBeginReauth },
-				setCfg: config.setCfg, setMode: config.setMode, setSelectedModels: config.setSelectedModels,
-				setHiddenModels: (ids: ReadonlyArray<string>) => config.setCfg('hiddenModels', [...ids]),
-			}),
+			tabContent,
 		);
 	};
+}
+
+/**
+ * Application header for the sidebar page: a brand mark and title/subtitle on
+ * the left, a live status pill and the primary actions on the right. The narrow
+ * reflow (wrap + full-width, equal action buttons) is driven by the measured
+ * `data-narrow` flag on the page root, not by a viewport media query, so it also
+ * stacks correctly in a narrow split view or with the sidebar open.
+ */
+function renderPageHeader(
+	t: Translator,
+	isAuthed: boolean,
+	addingAccount: boolean,
+	isBusy: boolean,
+	isRefreshAllBusy: boolean,
+	actions: { onAdd: () => void; onRefreshAll: () => void },
+): unknown {
+	return h('div', { className: 'agy2-header' },
+		h('span', { className: 'agy2-mark' }, agyIcon(22)),
+		h('div', { className: 'agy2-headtitles' },
+			h('h1', { className: 'agy2-title' }, t('section.label')),
+			h('p', { className: 'agy2-subtitle' }, t('page.subtitle')),
+		),
+		h('span', { className: 'agy2-pill', 'data-tone': isAuthed ? 'ok' : 'warn' },
+			isAuthed ? t('status.ready') : t('status.needsAuth')),
+		h('div', { className: 'agy2-headactions' },
+			!addingAccount ? h('button', {
+				type: 'button', className: 'agy2-btn', 'data-variant': 'primary',
+				disabled: isBusy,
+				onClick: actions.onAdd,
+			}, agyGlyph('plus', 14, '#ffffff'), t('account.add')) : null,
+			h('button', {
+				type: 'button', className: 'agy2-btn',
+				disabled: isBusy || isRefreshAllBusy,
+				onClick: actions.onRefreshAll,
+			}, ...(isRefreshAllBusy ? [Spinner(), t('header.refreshing')] : [agyGlyph('refresh', 14, 'currentColor'), t('header.refreshQuota')])),
+		),
+	);
 }
 
 function renderHeader(

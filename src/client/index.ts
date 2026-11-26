@@ -21,7 +21,8 @@ import { installSettingsNavIcon } from './icons.ts';
 import { disposeStatusPolling, ensureStatusPolling } from './status.ts';
 import { injectGlobalStyles } from './styles.ts';
 import { agyModalStore } from './ui/Modal.ts';
-import { createSettingsSection } from './sections/SettingsSection.ts';
+import { createSettingsSection, type SettingsSectionProps } from './sections/SettingsSection.ts';
+import { AgyPanelIcon, createConsolePage } from './sections/ConsolePage.ts';
 import { createSessionStatus } from './sections/SessionStatus.ts';
 import type { LocaleLike } from './hooks/useTranslation.ts';
 import { bindTranslator } from './i18n-bridge.ts';
@@ -126,17 +127,31 @@ export function apply(ctx: ClientContext): void {
 		return dispose;
 	});
 
-	// Register in settings section (under Gear icon -> Antigravity)
-	ctx.slots.inject('settings.section', () => {
+	// Primary entry: a panel icon in the global sidebar. Selecting it opens the
+	// full Antigravity console page in the `main` column (registered below under
+	// the same PANEL_ID). This replaces the old Gear → Antigravity settings row:
+	// the console is a first-class sidebar panel now, not a buried sub-section.
+	const PANEL_ID = 'agy-link';
+	ctx.slots.inject('sidebar.panellist', () => {
 		const dispose = ctx.slots.register(
 			{
-				name: 'settings.section',
-				id: 'agy-link',
-				order: 20,
-				label: () => locale.bind(NS)('section.label'),
+				name: 'sidebar.panellist',
+				id: PANEL_ID,
+				order: 25,
 				locale: NS,
+				label: () => locale.bind(NS)('section.label'),
 			},
-			AgySettingsSection as (props?: unknown) => unknown,
+			AgyPanelIcon as (props?: unknown) => unknown,
+		);
+		return dispose;
+	});
+
+	// The page itself, keyed by the sidebar entry id so the sidebar selects it.
+	const AgyConsolePage = createConsolePage(AgySettingsSection as (props?: SettingsSectionProps) => unknown);
+	ctx.slots.inject('main', () => {
+		const dispose = ctx.slots.register(
+			{ name: 'main', key: PANEL_ID, locale: NS },
+			AgyConsolePage,
 		);
 		return dispose;
 	});

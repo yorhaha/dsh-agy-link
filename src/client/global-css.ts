@@ -67,6 +67,9 @@ export const GLOBAL_CSS = `
 	--agy-badge-ready-text: #047857;
 	--agy-badge-ready-border: #a7f3d0;
 
+	--agy-badge-warn-bg: #fef6e7;
+	--agy-badge-warn-text: #b8791a; --agy-badge-warn-border: #f5d9a3;
+
 	--agy-badge-unready-bg: #eff6ff;
 	--agy-badge-unready-text: #1d4ed8;
 	--agy-badge-unready-border: #bfdbfe;
@@ -187,6 +190,9 @@ body.dark,
 	--agy-badge-ready-bg: rgba(16, 185, 129, 0.15);
 	--agy-badge-ready-text: #34d399;
 	--agy-badge-ready-border: rgba(16, 185, 129, 0.35);
+
+	--agy-badge-warn-bg: rgba(184, 121, 26, 0.18);
+	--agy-badge-warn-text: #e8b566; --agy-badge-warn-border: rgba(184, 121, 26, 0.4);
 
 	--agy-badge-unready-bg: rgba(59, 130, 246, 0.15);
 	--agy-badge-unready-text: #93c5fd;
@@ -427,6 +433,7 @@ html.agy-modal-open body {
    list follows color-scheme, so mirror the shell theme here too. */
 select.agy-select { color-scheme: light; }
 body[data-ds-dark-theme] select.agy-select { color-scheme: dark; }
+
 
 /* ------------------------------------------------------------------
    Phone web. Below 680px the console becomes a full-height sheet and
