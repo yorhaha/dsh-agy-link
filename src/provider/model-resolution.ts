@@ -27,7 +27,7 @@ export interface ModelResolutionDeps {
 export function activeAccount(deps: ModelResolutionDeps): ManagedAccount | undefined {
   const pool = deps.pool
   if (!pool) return undefined
-  const activeId = pool.getActiveAccountId('google') ?? pool.getPoolData().lastActiveAccountId ?? pool.getPoolData().primaryAccountId
+  const activeId = pool.getActiveAccountId('google') ?? pool.getPoolData().primaryAccountId
   return activeId ? pool.getAccount(activeId) : undefined
 }
 

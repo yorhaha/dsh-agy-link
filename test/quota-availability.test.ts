@@ -21,7 +21,7 @@ import { join } from 'node:path'
 import { AccountPoolManager } from '../src/host/pool.ts'
 import { QuotaService } from '../src/host/quota.ts'
 import { AGY_ENDPOINTS } from '../src/host/oauth.ts'
-import { shouldPollAccount } from '../src/common/pool-types.ts'
+import { shouldPollAccount, type ManagedAccount } from '../src/common/pool-types.ts'
 import { QUOTA_ENDPOINT_DOWN_MS, QUOTA_FREE_TIER_RETRY_MS, QUOTA_LICENSE_RETRY_MS, QUOTA_SUMMARY_REFUSED_RETRY_MS } from '../src/common/timeouts.ts'
 import {
   EndpointHealth,
@@ -183,8 +183,11 @@ class StubQuotaService extends QuotaService {
 function makeIsolatedAccount(label: string): { pool: AccountPoolManager; dir: string; id: string } {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-av-'))
   const pool = new AccountPoolManager(dir)
-  pool.setAccountEnabled('acc_primary', false)
-  const acc = pool.createAccountSlot(label)
+  // The pool holds one primary account; point it at an isolated HOME so the
+  // test never reads the developer's real ~/.gemini credentials or keychain.
+  const acc = pool.getPrimaryAccount()
+  acc.dir = join(dir, `home-${label}`)
+  acc.systemHome = false
   pool.clearAuthRequired(acc.id, true)
   const tokenDir = join(acc.dir, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -301,6 +304,58 @@ test('background polls skip the summary request while a summary-refused account 
 
 // ------------------------------------------------------------- scheduler ---
 
+/**
+ * Exercise the SURVIVING force-sweep path over a synthetic same-egress account
+ * list. The pool itself now holds exactly one real account, so the scheduler's
+ * bounded-parallelism contract is tested through the real
+ * `QuotaService.refreshAllQuotas` wiring instead of a multi-account pool.
+ */
+function sweepHarness(
+  accounts: ManagedAccount[],
+  opts: { staggerMs: number; concurrency?: number },
+) {
+  const starts: number[] = []
+  let active = 0
+  let peak = 0
+  class RecordingQuota extends QuotaService {
+    override async refreshAccountQuota(): Promise<null> {
+      starts.push(Date.now())
+      active++
+      peak = Math.max(peak, active)
+      await sleep(40)
+      active--
+      return null
+    }
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'agy-quota-sweep-'))
+  const fakePool = {
+    dir,
+    getAccounts: () => accounts,
+    getAccount: (id: string) => accounts.find((a) => a.id === id),
+    healAuthFlagsFromQuota: () => [],
+    noteAuthReverifyAttempt: () => undefined,
+    resetAccountIdentity: () => undefined,
+  } as unknown as AccountPoolManager
+  const qs = new RecordingQuota(fakePool, () => '', () => '1.5.12', {
+    forceStaggerMs: () => opts.staggerMs,
+    ...(opts.concurrency === undefined ? {} : { forceConcurrency: () => opts.concurrency as number }),
+  })
+  return { qs, starts, peak: () => peak, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+function sweepRows(ids: readonly string[]): ManagedAccount[] {
+  return ids.map((id) => ({
+    id,
+    alias: id,
+    dir: '',
+    proxyUrl: 'http://127.0.0.1:7890',
+    enabled: true,
+    createdAt: 1,
+    cooldowns: {},
+    quotas: {},
+  }))
+}
+
 test('sweepAccountsByEgress: bounded concurrency per egress with staggered starts', async () => {
   const accounts = Array.from({ length: 5 }, (_, i) => ({ id: `a${i}` }))
   const starts: number[] = []
@@ -352,39 +407,16 @@ test('sweepAccountsByEgress: concurrency 1 keeps the background sweep strictly s
 })
 
 test('refreshAllQuotas(true) refreshes same-egress accounts with bounded parallelism', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-quota-sweep-'))
+  const accounts = sweepRows(['s1', 's2', 's3', 's4'])
+  const { qs, starts, peak, cleanup } = sweepHarness(accounts, { staggerMs: 20, concurrency: 2 })
   try {
-    const pool = new AccountPoolManager(dir)
-    pool.setAccountEnabled('acc_primary', false)
-    const ids: string[] = []
-    for (const label of ['s1', 's2', 's3', 's4']) {
-      const acc = pool.createAccountSlot(label)
-      pool.clearAuthRequired(acc.id, true)
-      pool.setAccountProxy(acc.id, 'http://127.0.0.1:7890')
-      ids.push(acc.id)
-    }
-
-    let active = 0
-    let peak = 0
-    const starts: number[] = []
-    class RecordingQuota extends QuotaService {
-      override async refreshAccountQuota(): Promise<null> {
-        starts.push(Date.now())
-        active++
-        peak = Math.max(peak, active)
-        await sleep(40)
-        active--
-        return null
-      }
-    }
-    const qs = new RecordingQuota(pool, () => '', () => '1.5.12', { forceStaggerMs: () => 20, forceConcurrency: () => 2 })
     await qs.refreshAllQuotas(true)
 
-    assert.equal(starts.length, ids.length)
-    assert.ok(peak >= 2, `expected a manual sweep to overlap accounts, saw peak=${peak}`)
-    assert.ok(peak <= 2, `manual sweep concurrency must stay bounded, saw peak=${peak}`)
+    assert.equal(starts.length, accounts.length)
+    assert.ok(peak() >= 2, `expected a manual sweep to overlap accounts, saw peak=${peak()}`)
+    assert.ok(peak() <= 2, `manual sweep concurrency must stay bounded, saw peak=${peak()}`)
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    cleanup()
   }
 })
 
@@ -426,37 +458,17 @@ test('QuotaService exposes the account ids currently refreshing', async () => {
 })
 
 test('refreshAllQuotas(true) keeps bounded parallelism on win32 without global serializeWin32 lock', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-quota-win32-sweep-'))
   const origDesc = Object.getOwnPropertyDescriptor(process, 'platform')
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+  const { qs, peak, cleanup } = sweepHarness(sweepRows(['w1', 'w2', 'w3', 'w4']), { staggerMs: 15 })
   try {
-    const pool = new AccountPoolManager(dir)
-    pool.setAccountEnabled('acc_primary', false)
-    for (const label of ['w1', 'w2', 'w3', 'w4']) {
-      const acc = pool.createAccountSlot(label)
-      pool.clearAuthRequired(acc.id, true)
-      pool.setAccountProxy(acc.id, 'http://127.0.0.1:7890')
-    }
-
-    let active = 0
-    let peak = 0
-    class RecordingQuota extends QuotaService {
-      override async refreshAccountQuota(): Promise<null> {
-        active++
-        peak = Math.max(peak, active)
-        await sleep(40)
-        active--
-        return null
-      }
-    }
     // No forceConcurrency override: relies directly on QuotaService default on win32.
-    const qs = new RecordingQuota(pool, () => '', () => '1.5.12', { forceStaggerMs: () => 15 })
     await qs.refreshAllQuotas(true)
 
-    assert.ok(peak >= 2, `win32 isolated REST sweep should run with bounded parallelism, saw peak=${peak}`)
-    assert.ok(peak <= 2, `win32 sweep concurrency must stay bounded to 2, saw peak=${peak}`)
+    assert.ok(peak() >= 2, `win32 isolated REST sweep should run with bounded parallelism, saw peak=${peak()}`)
+    assert.ok(peak() <= 2, `win32 sweep concurrency must stay bounded to 2, saw peak=${peak()}`)
   } finally {
     if (origDesc) Object.defineProperty(process, 'platform', origDesc)
-    rmSync(dir, { recursive: true, force: true })
+    cleanup()
   }
 })

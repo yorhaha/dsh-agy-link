@@ -5,10 +5,26 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountPoolManager } from '../src/host/pool.ts'
 import { QuotaService, agyUserAgent, detectEmailFromAgyLogs, staggerJitterMs, isStale5hBucket, mergeFallbackFamilyQuota, normalizeStoredToken, pickFamilyQuota, sameCredentialGrant, sameQuotaWindow, shouldReleaseOrphanedCooldown, summaryHasArgonGroup } from '../src/host/quota.ts'
-import { shouldPollAccount } from '../src/common/pool-types.ts'
+import { shouldPollAccount, type ManagedAccount } from '../src/common/pool-types.ts'
 import { writeAgyTokenFile, parsePastedCode, generatePkce } from '../src/host/oauth.ts'
 import { parseCredentialDoc, writePrimaryCredential, credentialSlotMutex } from '../src/host/credential-slot.ts'
-import { detectSystemProxy } from '../src/host/wincred.ts'
+import { sandboxEnv } from './helpers/sandbox-env.ts'
+
+/**
+ * The single primary account, pointed at an isolated test HOME.
+ *
+ * The real primary rides the system HOME and its shared OS credential store,
+ * which a unit test must never read or write. Quota/token plumbing only needs a
+ * per-account home directory, so the tests move the primary onto one under the
+ * pool dir (the removed `createAccountSlot` used to do exactly this).
+ */
+function isolatedPrimary(pool: AccountPoolManager): ManagedAccount {
+  const acc = pool.getPrimaryAccount()
+  acc.dir = join(pool.dir, acc.id)
+  acc.systemHome = false
+  mkdirSync(join(acc.dir, '.gemini', 'antigravity-cli'), { recursive: true })
+  return acc
+}
 
 test('persistRefreshedToken keeps the refresh token and writes agy nested shape', () => {
   // Regression: the writer used to emit a flat `{access_token,expiry}` document
@@ -17,7 +33,7 @@ test('persistRefreshedToken keeps the refresh token and writes agy nested shape'
   // (which compare grants) could never fire.
   const dir = mkdtempSync(join(tmpdir(), 'agy-persist-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('persist-test')
+  const acc = isolatedPrimary(pool)
   const quota = new QuotaService(pool)
   const persist = (
     quota as unknown as {
@@ -43,9 +59,8 @@ test('persistRefreshedToken keeps the refresh token and writes agy nested shape'
 test('QuotaService parses stored tokens and saves token refresh updates', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-test-'))
   const pool = new AccountPoolManager(dir)
-  // Primary rides the system HOME (Keychain); token files only exist for
-  // isolated secondary accounts 鈥?exercise those.
-  const acc = pool.createAccountSlot('quota-test')
+  // Move the primary onto an isolated HOME so its token file is the source.
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -71,7 +86,7 @@ test('QuotaService parses stored tokens and saves token refresh updates', async 
 test('a replaced account grant is no longer current for an in-flight quota refresh', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-reauth-'))
   const pool = new AccountPoolManager(dir)
-  const account = pool.createAccountSlot('backup')
+  const account = isolatedPrimary(pool)
   const quota = new QuotaService(pool)
   const isCurrent = (quota as unknown as {
     isCurrentAccountGrant: (a: unknown, refresh: string) => boolean
@@ -141,7 +156,7 @@ test('writeAgyTokenFile emits the agy on-disk format and round-trips', async () 
   assert.ok(file.endsWith(join('.gemini', 'antigravity-cli', 'antigravity-oauth-token')))
 
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('roundtrip')
+  const acc = isolatedPrimary(pool)
   // Point the account at the HOME we just wrote.
   acc.dir = home
   const quota = new QuotaService(pool)
@@ -226,7 +241,7 @@ test('manual force refresh re-anchors slot identity from the token, not the labe
   // userinfo) over both the stored label and log detection.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-force-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('force-sync')
+  const acc = isolatedPrimary(pool)
   // Slot currently labeled with the OLD account.
   pool.updateAccountQuotas(acc.id, { google: { remainingFraction: 0.5, weeklyFraction: 0.5 } }, 'q986465568@gmail.com')
 
@@ -279,7 +294,7 @@ test('background refresh keeps the zero-network identity path (no userinfo when 
   // account switching 鈥?only manual force refreshes pay that network cost.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-bg-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('bg-poll')
+  const acc = isolatedPrimary(pool)
   pool.updateAccountQuotas(acc.id, { google: { remainingFraction: 0.5 } }, 'stable@gmail.com')
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
@@ -347,7 +362,7 @@ test('getStoredToken never reads the shared Keychain for isolated pool accounts'
   // account slots must only ever see their own directory's token file.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-iso-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('isolated')
+  const acc = isolatedPrimary(pool)
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
   writeFileSync(
@@ -396,34 +411,34 @@ test('detectEmailFromAgyLogs extracts user email from agy log files', () => {
   assert.equal(email, 'dev.user@google.com')
 })
 
-test('shouldPollAccount skips restricted accounts in background polling', () => {
+test('shouldPollAccount skips a restricted primary in background polling', () => {
+  // The single account cycles through the same gates a pool row used to face;
+  // each restriction must suppress polling until it expires.
   const dir = mkdtempSync(join(tmpdir(), 'agy-poll-gate-'))
   const pool = new AccountPoolManager(dir)
-  const healthy = pool.createAccountSlot('healthy')
-  const cooling = pool.createAccountSlot('cooling')
-  const quarantined = pool.createAccountSlot('quarantined')
-  const disabled = pool.createAccountSlot('disabled')
+  const acc = pool.getPrimaryAccount()
 
   // healthy: pollable as-is
-  assert.equal(shouldPollAccount(pool.getAccount(healthy.id)!), true)
+  assert.equal(shouldPollAccount(pool.getAccount(acc.id)!), true)
 
   // cooling: 429 cooldown active -> skipped until it expires
-  pool.recordFailure(cooling.id, 'google', 'RESOURCE_EXHAUSTED (code 429): quota reached. Resets in 21m25s.')
-  assert.equal(shouldPollAccount(pool.getAccount(cooling.id)!), false)
-
-  // quarantined: invalid_grant -> skipped until re-auth
-  pool.markAuthRequired(quarantined.id, 'invalid_grant')
-  assert.equal(shouldPollAccount(pool.getAccount(quarantined.id)!), false)
-
-  // disabled: skipped
-  const dis = pool.getAccount(disabled.id)!
-  dis.enabled = false
-  assert.equal(shouldPollAccount(dis), false)
+  pool.recordFailure(acc.id, 'google', 'RESOURCE_EXHAUSTED (code 429): quota reached. Resets in 21m25s.')
+  assert.equal(shouldPollAccount(pool.getAccount(acc.id)!), false)
 
   // expired cooldown becomes pollable again
-  const cd = pool.getAccount(cooling.id)!.cooldowns.google!
+  const cd = pool.getAccount(acc.id)!.cooldowns.google!
   cd.cooldownUntil = Date.now() - 1
-  assert.equal(shouldPollAccount(pool.getAccount(cooling.id)!), true)
+  assert.equal(shouldPollAccount(pool.getAccount(acc.id)!), true)
+
+  // quarantined: invalid_grant -> skipped until re-auth
+  pool.markAuthRequired(acc.id, 'invalid_grant')
+  assert.equal(shouldPollAccount(pool.getAccount(acc.id)!), false)
+  pool.clearAuthRequired(acc.id, true)
+
+  // disabled: skipped
+  const dis = pool.getAccount(acc.id)!
+  dis.enabled = false
+  assert.equal(shouldPollAccount(dis), false)
 })
 
 test('mergeFallbackFamilyQuota keeps last-known-good data over partial fallback', () => {
@@ -485,8 +500,8 @@ test('readSystemKeychainToken dispatches per platform (GH #8 / GH #30)', async (
   }
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-dispatch-'))
   const pool = new AccountPoolManager(dir)
-  const primary = pool.createAccountSlot('primary')
-  primary.systemHome = true
+  const primary = pool.getPrimaryAccount()
+  assert.equal(primary.systemHome, true, 'the primary rides the system HOME')
   const svc = new DispatchProbe(pool)
   const tok = await svc.getStoredToken(primary)
   assert.ok(tok === null || typeof tok.accessToken === 'string', 'dispatch resolves without throwing')
@@ -560,7 +575,7 @@ test('fetchQuotaSummary falls through partial summaries omitting Gemini to compl
 test('Gemini 4 Argon quota group lands in its own family, never on google', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argon-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-user')
+  const acc = isolatedPrimary(pool)
 
   // Valid on-disk token so no refresh flow runs.
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
@@ -628,7 +643,7 @@ test('Gemini 4 Argon quota group lands in its own family, never on google', asyn
 test('accounts without Argon access carry no argon quota entry (UI hides the row)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-noargon-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('free-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -671,7 +686,7 @@ test('accounts without Argon access carry no argon quota entry (UI hides the row
 test('active 5h consumption in model discovery tightens coarse summary 5h quota', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-tighten-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('tighten-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -737,7 +752,7 @@ test('weekly-bound model discovery must not overwrite the 5h row (2026-10-22 rep
   // reset on BOTH rows 鈥?exactly the screenshot the user filed.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-weeklymodels-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('weekly-models-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -815,7 +830,7 @@ test('exhausted 5h bucket: per-model weekly-boundary remaining lands on the WEEK
   // weekly row is what drives eligibility (LOW_QUOTA_WEEKLY = 5%).
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-weeklytighten-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('weekly-tighten-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -880,55 +895,58 @@ test('exhausted 5h bucket: per-model weekly-boundary remaining lands on the WEEK
   assert.equal(pool.isAccountEligible(refreshed, 'google', now), false, 'a 4% weekly account is not usable')
 })
 
-test('primary account on Windows resolves email from durable store (.primary-credential.json) and rejects sibling logs', async () => {
+test('primary account on Windows resolves email from durable store (.primary-credential.json), never from logs', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-primary-'))
-  const pool = new AccountPoolManager(dir)
-  const primary = pool.getAccounts().find((a) => a.systemHome)!
-  assert.ok(primary)
+  // The durable store has the verified primary email (written by a prior
+  // identity-verified refresh). HOME is sandboxed so log scraping cannot see
+  // the developer's real ~/.gemini logs and the test is deterministic.
+  const restoreEnv = sandboxEnv(dir)
+  try {
+    writePrimaryCredential(
+      {
+        raw: JSON.stringify({ token: { access_token: 'ya29.primary', refresh_token: '1//prim', expiry: new Date(Date.now() + 3600_000).toISOString() } }),
+        email: 'primary@example.com',
+        savedAt: Date.now(),
+      },
+      dir,
+    )
 
-  // Secondary sibling account exists in the pool
-  const sec = pool.createAccountSlot('sibling')
-  pool.updateAccountQuotas(sec.id, {}, 'sibling@example.com')
+    const pool = new AccountPoolManager(dir)
+    const primary = pool.getAccounts().find((a) => a.systemHome)!
+    assert.ok(primary, 'bootstrap default primary exists')
 
-  // Durable store has the verified primary email
-  writePrimaryCredential(
-    {
-      raw: JSON.stringify({ token: { access_token: 'ya29.primary', refresh_token: '1//prim', expiry: new Date(Date.now() + 3600_000).toISOString() } }),
-      email: 'primary@example.com',
-      savedAt: Date.now(),
-    },
-    dir,
-  )
-
-  // Write a log file that contains the sibling's email to simulate sibling agy runs
-  const logDir = join(dir, '.gemini', 'antigravity-cli', 'log')
-  mkdirSync(logDir, { recursive: true })
-  writeFileSync(
-    join(logDir, 'cli-20261017_120000.log'),
-    'OAuth: authenticated successfully as sibling@example.com\n',
-    'utf8',
-  )
-
-  class PrimaryTestService extends QuotaService {
-    override async fetchUserInfo() {
-      return null
+    class PrimaryTestService extends QuotaService {
+      override async readSystemKeychainToken() {
+        // Mocked: a unit test must never trigger a macOS SecurityAgent prompt.
+        return { accessToken: 'ya29.slot', refreshToken: '1//slot', expiryMs: Date.now() + 3_600_000 }
+      }
+      override async fetchUserInfo() {
+        return null
+      }
+      override async fetchQuotaSummary() {
+        return { groups: [{ displayName: 'Gemini Models', buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 1.0, resetTime: '2026-10-17T12:00:00Z' }] }] } as never
+      }
+      override async fetchAvailableModels() {
+        return { models: {} } as never
+      }
+      protected override async fetchUserQuotaEndpoint(): Promise<Response> {
+        return new Response('{}', { status: 200 })
+      }
     }
-    override async fetchQuotaSummary() {
-      return { groups: [{ displayName: 'Gemini Models', buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 1.0, resetTime: '2026-10-17T12:00:00Z' }] }] } as never
-    }
-    override async fetchAvailableModels() {
-      return { models: {} } as never
-    }
-  }
 
-  const svc = new PrimaryTestService(pool)
-  await svc.refreshAccountQuota(primary, false)
+    const svc = new PrimaryTestService(pool)
+    await svc.refreshAccountQuota(pool.getAccount(primary.id)!, false)
 
-  const updated = pool.getAccount(primary.id)!
-  if (process.platform === 'win32') {
-    assert.equal(updated.email, 'primary@example.com', 'primary resolves email from .primary-credential.json on Windows')
-  } else {
-    assert.notEqual(updated.email, 'sibling@example.com', 'primary never adopts sibling email from logs')
+    const updated = pool.getAccount(primary.id)!
+    if (process.platform === 'win32') {
+      assert.equal(updated.email, 'primary@example.com', 'primary resolves email from .primary-credential.json on Windows')
+    } else {
+      // No sibling rows exist any more; with no log evidence the primary keeps
+      // its unknown email instead of borrowing a label from anywhere.
+      assert.equal(updated.email, undefined, 'the primary is never relabelled from logs alone')
+    }
+  } finally {
+    restoreEnv()
   }
 })
 
@@ -981,7 +999,7 @@ test('isStale5hBucket correctly identifies unmetered placeholder 5h buckets', ()
 test('stale 5h summary placeholder with 100% and now+5h is replaced by live model quota (#48)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-stale5h-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('stale5h-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -1040,7 +1058,7 @@ test('stale 5h summary placeholder with 100% and now+5h is replaced by live mode
 test('fetchUserQuota integrates /v1internal:retrieveUserQuota per-model buckets (#48)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-retrieve-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('retrieve-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -1102,7 +1120,7 @@ test('fetchUserQuota integrates /v1internal:retrieveUserQuota per-model buckets 
 test('Argon model rows build the Argon family from their OWN reading, never from Gemini', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argonmodel-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-model-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -1174,7 +1192,7 @@ test('Argon model quota must never fill the 5-hour slot when the summary has no 
   // `/agy clear-cooldown` could not clear it because no cooldown existed.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argonweekly-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-weekly-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -1263,7 +1281,7 @@ test('a retired Argon group releases its cooldown even when argon models synthes
   // was written for, and a cooldown taken against the retired pool survived.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argonorphan-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-orphan-user')
+  const acc = isolatedPrimary(pool)
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
   mkdirSync(tokenDir, { recursive: true })
@@ -1470,7 +1488,7 @@ test('REGRESSION: isolated pool accounts never consult the CLI nor pay a keystor
   // poll would make the pool needlessly slow).
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-cliiso-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('isolated')
+  const acc = isolatedPrimary(pool)
   let keystoreReads = 0
   class CountingService extends QuotaService {
     override async readSystemKeychainToken() {
@@ -1532,7 +1550,7 @@ test('staggerJitterMs generates organic values within requested bounds', () => {
 test('REGRESSION: readCliUsageFamilies fast-reject must NOT wipe Argon quota from isolated accounts', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-cli-iso-argon-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('isolated-pro')
+  const acc = isolatedPrimary(pool)
   pool.updateAccountQuotas(acc.id, {
     argon: { weeklyFraction: 0.55, weeklyResetTime: '2026-10-30T00:00:00Z' },
   })
@@ -1550,37 +1568,28 @@ test('REGRESSION: readCliUsageFamilies fast-reject must NOT wipe Argon quota fro
   )
 })
 
-test('authoritative REST summary cleans up stale Argon on free accounts but preserves Pro accounts', async () => {
+test('authoritative REST summary clears stale Argon when the group is absent and restores it when present', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-authoritative-argon-'))
   const pool = new AccountPoolManager(dir)
+  const acc = isolatedPrimary(pool)
 
-  // 1. Free account with stale Argon leaked from previous slot bug
-  const freeAcc = pool.createAccountSlot('free-user')
-  const freeTokenDir = join(freeAcc.dir!, '.gemini', 'antigravity-cli')
-  mkdirSync(freeTokenDir, { recursive: true })
+  const tokenDir = join(acc.dir, '.gemini', 'antigravity-cli')
   writeFileSync(
-    join(freeTokenDir, 'antigravity-oauth-token'),
-    JSON.stringify({ access_token: 'ya29.free', expiry: Date.now() + 3600_000 }),
+    join(tokenDir, 'antigravity-oauth-token'),
+    JSON.stringify({ access_token: 'ya29.authoritative', expiry: Date.now() + 3600_000 }),
     'utf8',
   )
-  pool.updateAccountQuotas(freeAcc.id, {
+  // A stale Argon row leaked from a previous slot/plan, plus a known identity so
+  // the refresh never resets the account mid-test.
+  pool.updateAccountQuotas(acc.id, {
     argon: { weeklyFraction: 0.8 },
     google: { remainingFraction: 1 },
-  })
+  }, 'test@example.com')
 
-  // 2. Pro account with legitimate Argon
-  const proAcc = pool.createAccountSlot('pro-user')
-  const proTokenDir = join(proAcc.dir!, '.gemini', 'antigravity-cli')
-  mkdirSync(proTokenDir, { recursive: true })
-  writeFileSync(
-    join(proTokenDir, 'antigravity-oauth-token'),
-    JSON.stringify({ access_token: 'ya29.pro', expiry: Date.now() + 3600_000 }),
-    'utf8',
-  )
-
+  let withArgon = false
   class MockRestService extends QuotaService {
-    override async fetchUserInfo(token: string) {
-      return token.includes('pro') ? { email: 'pro@test.com' } : { email: 'free@test.com' }
+    override async fetchUserInfo() {
+      return { email: 'test@example.com' }
     }
     override async fetchAvailableModels() {
       return { models: {} } as never
@@ -1592,27 +1601,19 @@ test('authoritative REST summary cleans up stale Argon on free accounts but pres
     protected override async fetchUserQuotaEndpoint(): Promise<Response> {
       return new Response('{}', { status: 200 })
     }
-    override async fetchQuotaSummary(token: string) {
-      if (token.includes('pro')) {
-        return {
-          groups: [
-            {
-              displayName: 'Gemini Models',
-              buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 1, resetTime: '2026-10-28T00:00:00Z' }],
-            },
-            {
-              displayName: 'Gemini 4 Argon',
-              buckets: [{ bucketId: 'argon-weekly', window: 'weekly', remainingFraction: 0.55, resetTime: '2026-10-30T00:00:00Z' }],
-            },
-          ],
-        } as never
-      }
+    override async fetchQuotaSummary() {
       return {
         groups: [
           {
             displayName: 'Gemini Models',
             buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 1, resetTime: '2026-10-28T00:00:00Z' }],
           },
+          ...(withArgon
+            ? [{
+                displayName: 'Gemini 4 Argon',
+                buckets: [{ bucketId: 'argon-weekly', window: 'weekly', remainingFraction: 0.55, resetTime: '2026-10-30T00:00:00Z' }],
+              }]
+            : []),
         ],
       } as never
     }
@@ -1620,13 +1621,14 @@ test('authoritative REST summary cleans up stale Argon on free accounts but pres
 
   const svc = new MockRestService(pool, () => '', () => '1.4.5', { bin: () => 'agy' })
 
-  // Refresh free account: authoritative summary has NO Argon, stale row must be wiped
-  await svc.refreshAccountQuota(pool.getAccount(freeAcc.id)!, true)
-  assert.equal(pool.getAccount(freeAcc.id)!.quotas.argon, undefined, 'free account stale Argon cleared')
+  // Authoritative summary has NO Argon: the stale row must be wiped.
+  await svc.refreshAccountQuota(pool.getAccount(acc.id)!, true)
+  assert.equal(pool.getAccount(acc.id)!.quotas.argon, undefined, 'stale Argon cleared when the summary omits it')
 
-  // Refresh pro account: authoritative summary has Argon, row must be populated
-  await svc.refreshAccountQuota(pool.getAccount(proAcc.id)!, true)
-  assert.equal(pool.getAccount(proAcc.id)!.quotas.argon?.weeklyFraction, 0.55, 'pro account Argon retained')
+  // Authoritative summary DOES report Argon: the row must be populated.
+  withArgon = true
+  await svc.refreshAccountQuota(pool.getAccount(acc.id)!, true)
+  assert.equal(pool.getAccount(acc.id)!.quotas.argon?.weeklyFraction, 0.55, 'Argon retained when the summary reports it')
 })
 
 test('cliSlotHoldsAccount refuses when neither durable primary credential nor disk token exists', async () => {
@@ -1705,7 +1707,7 @@ test('agy 1.5.5: the Argon row comes from Argon’s own reading, not the Gemini 
   // instead of being re-homed under the Gemini family.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argon-fold-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-fold')
+  const acc = isolatedPrimary(pool)
   // Seed a stale argon row from a previous (three-group) backend to prove it is
   // dropped once the summary stops reporting the dedicated group.
   pool.updateAccountQuotas(acc.id, { argon: { weeklyFraction: 1 } }, 'fold@gmail.com')
@@ -1791,7 +1793,7 @@ test('a dedicated Argon group still surfaces its own weekly pool (old backend)',
   // `Gemini 4 Argon` group, its weekly row (and per-model detail) must survive.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argon-group-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-group')
+  const acc = isolatedPrimary(pool)
   pool.updateAccountQuotas(acc.id, { google: { remainingFraction: 0.8 } }, 'group@gmail.com')
 
   const tokenDir = join(acc.dir!, '.gemini', 'antigravity-cli')
@@ -1863,7 +1865,7 @@ test('a drained Gemini pool must not bench Argon (separate quota books)', () => 
   // own weekly pool is still full.
   const dir = mkdtempSync(join(tmpdir(), 'agy-quota-argon-gate-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('argon-gate')
+  const acc = isolatedPrimary(pool)
   const reset = new Date(Date.now() + 2 * 3600_000).toISOString()
   pool.updateAccountQuotas(acc.id, {
     google: {
@@ -1892,7 +1894,7 @@ test('getValidAccessToken returns null instead of an already-expired accessToken
   const { getValidAccessToken } = await import('../src/features/quota/token.ts')
   const dir = mkdtempSync(join(tmpdir(), 'agy-expired-tok-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('expired-net')
+  const acc = isolatedPrimary(pool)
   const tokenFile = join(acc.dir, '.gemini', 'antigravity-cli', 'antigravity-oauth-token')
   mkdirSync(join(acc.dir, '.gemini', 'antigravity-cli'), { recursive: true })
   const raw = JSON.stringify({
@@ -1927,26 +1929,3 @@ test('getValidAccessToken returns null instead of an already-expired accessToken
   assert.equal(pool.getAccount(acc.id)?.authRequired, undefined, 'transport failure must not mark authRequired')
 })
 
-
-test("cliSlotHoldsAccount refuses a slot that belongs to a sibling isolated account", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "agy-quota-sibling-slot-"))
-  const pool = new AccountPoolManager(dir)
-  pool.setAccountEnabled("acc_primary", false)
-  const secondary = pool.createAccountSlot("sib")
-  const primary = pool.getAccounts().find((a) => a.systemHome)
-  assert.ok(primary)
-  assert.ok(secondary.dir)
-  const token = { accessToken: "a-sib", refreshToken: "1//SIBLING" }
-  class SiblingSlotService extends QuotaService {
-    override async readSystemKeychainToken() {
-      return token
-    }
-    override async getStoredToken(a: { id?: string }) {
-      return a.id === secondary.id ? token : null
-    }
-  }
-  const svc = new SiblingSlotService(pool, () => "", () => null, { bin: () => "agy" }) as unknown as {
-    cliSlotHoldsAccount(a: unknown): Promise<boolean>
-  }
-  assert.equal(await svc.cliSlotHoldsAccount(primary), false)
-})

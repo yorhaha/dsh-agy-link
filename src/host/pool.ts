@@ -22,6 +22,7 @@ import {
   LOW_QUOTA_5H,
   LOW_QUOTA_WEEKLY,
   explainIneligibility,
+  isModelQuotaClear,
   isAccountEligible,
   type AccountIneligibilityReason,
 } from '../domain/accounts/selection.ts'
@@ -115,6 +116,52 @@ export class AccountPoolManager {
   getAccounts(): readonly ManagedAccount[] {
     return this.data.accounts
   }
+
+  /**
+   * The account serving `family`. With a single primary account there is no
+   * per-family pinning left, so this is always the primary.
+   */
+  getActiveAccountId(_family?: ModelFamily): string | undefined {
+    return this.getPrimaryAccount()?.id
+  }
+
+  /**
+   * Single-account selection: with no rotation, this answers the only question
+   * left — "can this pool serve `family` (and `model`) right now?" — by
+   * returning the primary account, or null when it is unavailable.
+   */
+  selectAccount(
+    family: ModelFamily,
+    model?: string,
+    quotaModel?: string,
+    avoidAccountIds?: readonly string[],
+  ): ManagedAccount | null {
+    return this.findAccount(family, model, quotaModel, avoidAccountIds)
+  }
+
+  /** The account `selectAccount` would return, or null. */
+  findAccount(
+    family: ModelFamily,
+    model?: string,
+    quotaModel?: string,
+    avoidAccountIds?: readonly string[],
+  ): ManagedAccount | null {
+    const acc = this.getPrimaryAccount()
+    if (!acc || acc.enabled !== true) return null
+    if (avoidAccountIds?.includes(acc.id) === true) return null
+    const now = Date.now()
+    if (this.explainIneligibility(acc, family, now, model) !== null) return null
+    const gated = quotaModel !== undefined && quotaModel !== '' ? quotaModel : model
+    if (gated !== undefined && gated !== '' && !isModelQuotaClear(acc, family, gated, now)) return null
+    return acc
+  }
+
+  /**
+   * Settlement bookkeeping hook. A single account cannot rotate, so there is
+   * nowhere to advance to; cooldowns and quota gates are recorded by the
+   * `record*` methods instead.
+   */
+  advanceAccount(_accountId: string, _family: ModelFamily, _model?: string): void {}
 
   getAccount(id: string): ManagedAccount | undefined {
     return this.data.accounts.find((a) => a.id === id)

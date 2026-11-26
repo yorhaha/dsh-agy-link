@@ -1,19 +1,17 @@
 // Session-scoped account + quota readout for the conversation header badge.
 //
-// WHY this exists: account selection is PER MODEL FAMILY. An `Gemini 4 Argon`
-// turn runs on the Argon-eligible account even when the `google` pointer still
-// names a different account, and Argon bills against its OWN weekly quota book.
-// The header badge used to resolve `google` unconditionally, so an Argon session
-// displayed another account's alias together with that account's *Gemini*
+// WHY this exists: quota books are PER MODEL FAMILY. A `Gemini 4 Argon` turn
+// bills against Argon's OWN weekly book, while Gemini uses its 5-hour window,
+// even though the single primary account serves both. The header badge used to
+// resolve `google` unconditionally, so an Argon session displayed the *Gemini*
 // percentage — contradicting both the model shown in the composer and the
 // console's Argon row (reported 2026-11-23). Everything here derives from the
 // same pointers the scheduler uses, so all three surfaces tell one story:
 //
-//   session model -> family -> sticky session account -> per-family pin -> the
-//   side-effect-free `resolvedActiveAccountIds` prediction.
+//   session model -> family -> sticky session account -> the primary account.
 //
 // `source` keeps prediction distinct from reality: only a sticky session
-// binding or an actual per-family pin may be presented as "in use".
+// binding may be presented as "in use".
 import {
   argonSharesGoogleGroup,
   modelFamilyOf,
@@ -25,7 +23,7 @@ import { isFamilyCooling, QUOTA_FAMILIES, type QuotaFamily } from './quota-bench
 
 /** How the reported account was established. */
 export type SessionViewSource =
-  /** This session (or a real per-family pin) actually uses that account. */
+  /** This session actually uses that account. */
   | 'session'
   /** Nobody has run this family yet: the scheduler's predicted pick. */
   | 'predicted'
@@ -119,7 +117,7 @@ function familyReading(acc: ManagedAccount | undefined, family: QuotaFamily, now
  * `stickyAccountId` is the account the scheduler bound to this session for that
  * family (see `stickyAccount` in provider/account-selection.ts); it is validated
  * here so a deleted/stale binding can never be announced. Without it the view
- * falls back to the per-family pin, then to the eligible-account prediction.
+ * falls back to the pool's single primary account.
  */
 export function buildSessionView(input: {
   poolData?: AccountPoolData | undefined
@@ -133,20 +131,18 @@ export function buildSessionView(input: {
   if (family === null) return { ...EMPTY_SESSION_VIEW, model }
   const now = input.now ?? Date.now()
   const poolData = input.poolData
-  const pinnedId = poolData?.activeAccountIds?.[family]
-  const resolvedId = poolData?.resolvedActiveAccountIds?.[family] ?? pinnedId
+  // Single-account mode: there is no per-family pointer left, so the primary
+  // credential (or the only stored row) is the scheduler's pick for every family.
+  const primaryId = poolData?.primaryAccountId ?? poolData?.accounts[0]?.id
   const sticky = input.stickyAccountId !== undefined && input.stickyAccountId !== ''
     ? input.accounts.find((a) => a.id === input.stickyAccountId)
     : undefined
-  const accountId = sticky?.id ?? resolvedId ?? null
+  const accountId = sticky?.id ?? primaryId ?? null
   const acc = accountId === null ? undefined : input.accounts.find((a) => a.id === accountId)
   if (acc === undefined) {
     return { ...EMPTY_SESSION_VIEW, model, family, source: 'none' }
   }
-  const source: SessionViewSource =
-    sticky !== undefined || (pinnedId !== undefined && pinnedId === resolvedId)
-      ? 'session'
-      : 'predicted'
+  const source: SessionViewSource = sticky !== undefined ? 'session' : 'predicted'
   const reading = familyReading(acc, family, now)
   return {
     model,

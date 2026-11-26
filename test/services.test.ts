@@ -315,17 +315,16 @@ test('rememberEffortUnsupported persists, announces, and de-duplicates case/spac
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), ['a', 'claude-sonnet-4-6'])
 })
 
-test('createHostServices wires per-account catalog into pool.isModelSupported and dsh-agent model.select', async (t) => {
+test('createHostServices wires the account catalog into pool.isModelSupported and dsh-agent model.select', async (t) => {
   sandbox(t)
   const selected: unknown[] = []
   const fakeAgents = {
     resolve: async (id: unknown) => (id === 'sess-1' ? { model: { select: (s: unknown) => selected.push(s) } } : undefined),
   }
   const services = createHostServices(asCtx({ get: (k) => (k === 'agents' ? fakeAgents : undefined) }), {})
-  const acc1 = services.pool.getAccounts()[0]!
-  const acc2 = services.pool.createAccountSlot('Secondary')
+  const acc1 = services.pool.getPrimaryAccount()
 
-  // Populate discovered catalog ONLY for acc1 (with Argon), leave acc2 un-probed
+  // Populate the discovered catalog (with Argon) for the primary account
   ;(services.catalog as any).accountCatalogs.set(acc1.id, {
     source: 'discovered',
     models: [{ id: 'gemini-4-argon', name: 'Gemini 4 Argon', efforts: ['high'] }],
@@ -333,8 +332,7 @@ test('createHostServices wires per-account catalog into pool.isModelSupported an
   })
   ;(services.catalog as any).current = (services.catalog as any).accountCatalogs.get(acc1.id)
 
-  assert.equal(services.pool.isModelSupported(acc1, 'gemini-4-argon'), true, 'pool must see acc1 discovered catalog')
-  assert.equal(services.pool.isModelSupported(acc2, 'gemini-4-argon'), false, 'un-probed acc2 must not inherit acc1 Argon')
+  assert.equal(services.pool.isModelSupported(acc1, 'gemini-4-argon'), true, 'pool must see the discovered catalog')
 
   // Verify syncSessionModel reaches dsh-agent's resolve(id).model.select(...)
   ;(services.adapter as any).deps.syncSessionModel('sess-1', 'gemini-3.8-flash', 'high')
@@ -423,7 +421,7 @@ test('issue #139: activeCwds degrades to empty when the sessions service is unus
   assert.deepEqual(services.activeCwds(), [])
 })
 
-test('global ModelCatalog discovery skips disabled primaryAccountId and rejects when all accounts are disabled', async (t) => {
+test('global ModelCatalog discovery probes the primary account and populates its catalog', async (t) => {
   const root = sandbox(t)
   const isWin = process.platform === 'win32'
   const fakeBin = join(root, isWin ? 'agy.cmd' : 'agy')
@@ -448,20 +446,14 @@ test('global ModelCatalog discovery skips disabled primaryAccountId and rejects 
   process.env.DSH_AGY_BIN = fakeBin
 
   const services = createHostServices(asCtx({}), {})
-  const primary = services.pool.getAccounts().find((a) => a.systemHome)!
-  const secondary = services.pool.createAccountSlot('sec')
-  services.pool.setAccountEnabled(primary.id, false)
+  const primary = services.pool.getPrimaryAccount()
 
   await services.catalog.forceRefresh()
   const logged = readFileSync(join(root, 'probe-homes.log'), 'utf8').trim().split('\n')
-  assert.equal(logged.at(-1), `home=${secondary.dir}`, 'disabled primary must be skipped in favor of enabled secondary')
+  assert.equal(logged.at(-1)?.startsWith('home='), true, 'discovery probes the primary account home')
   assert.equal(
-    services.catalog.getAccountCatalog(secondary.id)?.models.some((m) => m.id === 'gemini-3.8-flash'),
+    services.catalog.getAccountCatalog(primary.id)?.models.some((m) => m.id === 'gemini-3.8-flash'),
     true,
     'global discovery must also populate the probed account catalog so accountSupportsModel sees it immediately',
   )
-
-  services.pool.setAccountEnabled(secondary.id, false)
-  await services.catalog.forceRefresh()
-  assert.match(services.catalog.get().lastError ?? '', /no enabled account available/)
 })

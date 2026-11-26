@@ -17,7 +17,7 @@ import { hasLeaseBearer, linkEndpointPath } from '../src/host/external-lease.ts'
 function setup(t: test.TestContext, port: number | null = 43210) {
   const dir = mkdtempSync(join(tmpdir(), 'agy-lease-routes-'))
   const pool = new AccountPoolManager(dir)
-  const second = pool.createAccountSlot('Second')
+  const second = pool.getPrimaryAccount()
   const routes: Route[] = []
   const services = {
     pool,

@@ -30,22 +30,13 @@ export class AccountAuthFlags {
     return this.deps.getData().accounts.find((a) => a.id === id)
   }
 
-  /** Quarantine now: the account leaves rotation until it is proven alive again. */
+  /** Quarantine now: the account stops serving turns until it is proven alive. */
   mark(id: string, reason?: string): void {
-    const data = this.deps.getData()
     const acc = this.account(id)
     if (!acc) return
     acc.authRequired = true
     acc.authMarkedAt = Date.now()
     acc.authError = reason || 'Authentication expired or revoked (invalid_grant)'
-    if (data.lastActiveAccountId === id) {
-      data.lastActiveAccountId = undefined
-    }
-    if (data.activeAccountIds) {
-      for (const [fam, accId] of Object.entries(data.activeAccountIds)) {
-        if (accId === id) delete data.activeAccountIds[fam as ModelFamily]
-      }
-    }
     this.deps.authStrikes.delete(id)
     this.deps.persist()
   }

@@ -2,7 +2,7 @@
 // merge (which must read the PENDING set, not the last rendered snapshot, so two
 // rapid clicks never lose one another).
 
-import { postConfig, postPool } from '../api.ts';
+import { postConfig } from '../api.ts';
 import { useRef } from '../react.ts';
 import type { StatusPayload } from '../status.ts';
 import type { ShowToast } from '../ui/Toast.ts';
@@ -21,7 +21,6 @@ export interface ConfigActions {
 	toggleModelHidden: (id: string, hide: boolean) => Promise<void>;
 	/** Replace the whole picker-facing allow-list in one write. */
 	setSelectedModels: (ids: ReadonlyArray<string>) => Promise<void>;
-	setMode: (mode: string) => Promise<void>;
 }
 
 export function useConfig({ status, refresh, showToast, setLoadingAction, t }: ConfigDeps): ConfigActions {
@@ -80,17 +79,6 @@ export function useConfig({ status, refresh, showToast, setLoadingAction, t }: C
 		}
 	};
 
-	const setMode = async (mode: string): Promise<void> => {
-		setLoadingAction(`mode:${mode}`);
-		const res = await postPool('mode', { mode });
-		if (res === null || res?.ok === false) {
-			setLoadingAction(null);
-			actionFailed();
-			return;
-		}
-		await refresh();
-		setLoadingAction(null);
-	};
 
-	return { setCfg, toggleModelHidden, setSelectedModels, setMode };
+	return { setCfg, toggleModelHidden, setSelectedModels };
 }

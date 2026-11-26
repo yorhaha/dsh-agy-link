@@ -2,7 +2,7 @@
 // Each test names the defect it pins: without it the bug walks back in.
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountPoolManager } from '../src/host/pool.ts'
@@ -117,59 +117,6 @@ describe('discovery follows pool account homes', () => {
 })
 
 describe('pool hardening', () => {
-	test('deleteAccount refuses to rm directories outside baseDir', () => {
-		const base = mkdtempSync(join(tmpdir(), 'agy-pool-'))
-		const outside = mkdtempSync(join(tmpdir(), 'agy-pool-outside-'))
-		writeFileSync(join(outside, 'precious.txt'), 'keep me')
-		const pool = new AccountPoolManager(base)
-		const acc = pool.createAccountSlot('evil')
-		// Simulate a hand-edited pool.json record pointing anywhere.
-		acc.dir = outside
-		pool.deleteAccount(acc.id)
-		assert.ok(existsSync(join(outside, 'precious.txt')), 'out-of-base dir must survive account deletion')
-		// In-base dirs still get cleaned.
-		const acc2 = pool.createAccountSlot('good')
-		assert.ok(existsSync(acc2.dir!))
-		pool.deleteAccount(acc2.id)
-		assert.ok(!existsSync(acc2.dir!), 'in-base dir is removed')
-		rmSync(base, { recursive: true, force: true })
-		rmSync(outside, { recursive: true, force: true })
-	})
-
-	test('persist merges accounts written by another host process', () => {
-		const base = mkdtempSync(join(tmpdir(), 'agy-pool-merge-'))
-		const poolA = new AccountPoolManager(base)
-		const poolB = new AccountPoolManager(base)
-		const a = poolA.createAccountSlot('from-a')
-		const b = poolB.createAccountSlot('from-b')
-		// Both persist their own create; the merge must keep BOTH accounts.
-		const ids = new AccountPoolManager(base).getAccounts().map((x) => x.id)
-		assert.ok(ids.includes(a.id), 'account from process A survives')
-		assert.ok(ids.includes(b.id), 'account from process B survives')
-		// A process can only delete ids it knows; deleting the KNOWN id
-		// propagates (and is not resurrected by the other process's file).
-		poolB.deleteAccount(b.id)
-		const after = new AccountPoolManager(base).getAccounts().map((x) => x.id)
-		assert.ok(!after.includes(b.id), 'deletion propagates')
-		assert.ok(after.includes(a.id), 'unrelated account survives the merge')
-		rmSync(base, { recursive: true, force: true })
-	})
-
-	test('entry points quarantine add-account slots until login verifies them', () => {
-		const base = mkdtempSync(join(tmpdir(), 'agy-pool-authflag-'))
-		const pool = new AccountPoolManager(base)
-		const acc = pool.createAccountSlot('fresh')
-		// The factory itself stays neutral (scheduling tests rely on that);
-		// /agy add-account and POST /pool/add mark the slot after creation.
-		pool.markAuthRequired(acc.id, 'not signed in yet — complete the terminal login')
-		assert.equal(pool.isAccountEligible(acc, 'google'), false, 'unlogged account stays out of rotation')
-		// A successful run clears the flag and rejoins rotation.
-		pool.recordSuccess(acc.id, 'google')
-		assert.equal(pool.getAccount(acc.id)?.authRequired, undefined)
-		assert.equal(pool.isAccountEligible(acc, 'google'), true)
-		rmSync(base, { recursive: true, force: true })
-	})
-
 	test('exhausted quota with an INVALID resetTime still counts as drained', () => {
 		const base = mkdtempSync(join(tmpdir(), 'agy-pool-reset-'))
 		const pool = new AccountPoolManager(base)

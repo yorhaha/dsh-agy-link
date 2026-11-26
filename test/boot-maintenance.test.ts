@@ -137,67 +137,30 @@ test('pickOrphanMcpProcesses kills only long-running MCP servers whose parent is
   assert.deepEqual(picked, [100])
 })
 
-test('runMaintenancePass aggregates every step, survives a throwing step, and skips system-home accounts', () => {
-  withTempDir((dir) => {
-    const isolated = join(dir, 'acc-a')
-    const systemHome = join(dir, 'acc-primary')
-    const presence = presenceDirOf(isolated)
-    mkdirSync(presence, { recursive: true })
-    const stale = join(presence, 'dead.lock')
-    writeFileSync(stale, '')
-    const old = new Date(Date.now() - PRESENCE_LOCK_MAX_AGE_MS - 60_000)
-    utimesSync(stale, old, old)
-    mkdirSync(presenceDirOf(systemHome), { recursive: true })
-    const systemStale = join(presenceDirOf(systemHome), 'dead.lock')
-    writeFileSync(systemStale, '')
-    utimesSync(systemStale, old, old)
-
-    const logs: string[] = []
-    const result = runMaintenancePass({
-      accounts: () => [
-        { id: 'a', dir: isolated, enabled: true } as never,
-        { id: 'primary', dir: systemHome, systemHome: true, enabled: true } as never,
-      ],
-      sweepStaging: () => 2,
-      sweepLogs: () => {
-        throw new Error('disk on fire')
-      },
-      log: (m) => logs.push(m),
-      reapOrphans: false,
-    })
-
-    assert.equal(result.presence, 1, 'only the isolated account is swept')
-    assert.equal(result.staging, 2)
-    assert.equal(result.logs, 0, 'a throwing step degrades to 0 instead of aborting the pass')
-    assert.equal(existsSync(systemStale), true, 'the system HOME account is never touched')
-    assert.equal(logs.length, 1)
-    assert.match(logs[0]!, /maintenance: swept/)
-  })
-})
-
-test('runMaintenancePass tolerates an account reader that throws', () => {
+test('runMaintenancePass aggregates every step and survives a throwing step', () => {
+  const logs: string[] = []
   const result = runMaintenancePass({
-    accounts: () => {
-      throw new Error('pool disposed')
+    sweepLogs: () => {
+      throw new Error('disk on fire')
     },
-    sweepStaging: () => 0,
-    sweepLogs: () => 0,
-    log: () => {},
+    log: (m) => logs.push(m),
     reapOrphans: false,
   })
-  assert.deepEqual(result, { presence: 0, staging: 0, logs: 0, reaped: [] })
+
+  assert.equal(result.presence, 0)
+  assert.equal(result.staging, 0)
+  assert.equal(result.logs, 0, 'a throwing step degrades to 0 instead of aborting the pass')
+  assert.equal(logs.length, 0, 'nothing is logged when every step degraded to 0')
 })
 
 test('scheduleBootMaintenance runs deferred passes and stops cleanly', async () => {
   let passes = 0
   const stop = scheduleBootMaintenance(
     {
-      accounts: () => [],
-      sweepStaging: () => {
+      sweepLogs: () => {
         passes++
         return 0
       },
-      sweepLogs: () => 0,
       log: () => {},
       reapOrphans: false,
     },
@@ -258,7 +221,7 @@ test('describeStartupCost names the registry cost and flags unpinned servers', (
     )
     const lines = describeStartupCost(registry, [{ id: 'a', dir: join(dir, 'acc'), enabled: true } as never])
     const text = lines.join('\n')
-    assert.match(text, /startup cost: 1 pool account/)
+    assert.match(text, /startup cost: the primary account/)
     assert.match(text, /MCP registry: 3 server\(s\) forked by EVERY agy spawn/)
     assert.match(text, /floating — @latest re-resolves on every spawn/)
     assert.match(text, /plain — npx/)
@@ -271,7 +234,7 @@ test('describeStartupCost is silent about a missing registry and never throws', 
   withTempDir((dir) => {
     const lines = describeStartupCost(join(dir, 'nope.json'), [])
     assert.equal(lines.length, 1)
-    assert.match(lines[0]!, /startup cost: 0 pool account\(s\)/)
+    assert.match(lines[0]!, /startup cost: no signed-in account/)
     const broken = join(dir, 'broken.json')
     writeFileSync(broken, '{not json')
     assert.doesNotThrow(() => describeStartupCost(broken, []))

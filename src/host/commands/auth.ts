@@ -8,23 +8,8 @@ export async function handleAuth(deps: CommandDeps, ctx: CommandContext): Promis
   if (sub === 'auth') {
     const flow = deps.poolAuth?.()
     if (!flow) return err('auth flow not available')
-    const selector = parts.slice(1).join(' ')
-    let st
-    if (!selector) {
-      st = await flow.beginPrimary(deps.cfg().proxyUrl || undefined)
-    } else {
-      const pool = deps.pool?.()
-      if (!pool) return err('Account pool not available')
-      const matches = pool.getAccounts().filter((a) =>
-        [a.id, a.alias, a.email].some((value) => value?.toLowerCase() === selector.toLowerCase()))
-      if (matches.length !== 1) {
-        return err(matches.length ? 'Multiple accounts match; use an account ID from /agy pool.' : 'Account not found; use /agy pool to list account IDs.')
-      }
-      const account = matches[0]!
-      st = account.systemHome || !account.dir
-        ? await flow.beginPrimary(account.proxyUrl || deps.cfg().proxyUrl || undefined)
-        : await flow.beginAccount(account.id, account.proxyUrl || deps.cfg().proxyUrl || undefined)
-    }
+    // One account: any selector is redundant, so the primary is always the target.
+    const st = await flow.beginPrimary(deps.cfg().proxyUrl || undefined)
     if (st.ok && st.url) {
       return ok([
         st.browserOpened
@@ -92,7 +77,7 @@ export async function handleAuth(deps: CommandDeps, ctx: CommandContext): Promis
       deps.notifyPicker?.()
       const acc = res.account
       const label = acc ? (acc.alias || acc.email || acc.id) : (res.email || 'account')
-      return ok(`成功导入凭据 (${label})${res.isNew ? '，已加入账号池' : '，已更新已有账号凭据'}。\nSuccessfully imported token for ${label} (${res.isNew ? 'added to pool' : 'updated existing'}).`)
+      return ok(`成功导入凭据 (${label})，已更新当前账号。\nSuccessfully imported token for ${label} (updated the account).`)
     }
     return err(`导入失败: ${res.error || res.code || 'token invalid or exchange failed'}`)
   }

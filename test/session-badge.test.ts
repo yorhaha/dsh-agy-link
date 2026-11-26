@@ -2,7 +2,7 @@
 // the console for an Argon session, reported 2026-11-23).
 //
 // The badge may only claim what the session view resolved. Without a view it
-// must stay silent about the account rather than borrow another family's pin.
+// must stay silent about the account rather than borrow another family's book.
 import './helpers/client-render.ts'
 import { React, renderToStaticMarkup } from './helpers/client-render.ts'
 
@@ -26,29 +26,23 @@ const dao = account({
   id: 'acc_dao',
   alias: 'dao',
   email: 'dao@example.com',
-  quotas: { google: { remainingFraction: 0.98, weeklyFraction: 0.56, resetTime: RESET, updatedAt: Date.now() } },
-})
-const ele = account({
-  id: 'acc_ele',
-  alias: 'ele',
-  email: 'ele@example.com',
-  quotas: { argon: { weeklyFraction: 0.58, weeklyResetTime: RESET, updatedAt: Date.now() } },
+  quotas: {
+    google: { remainingFraction: 0.98, weeklyFraction: 0.56, resetTime: RESET, updatedAt: Date.now() },
+    argon: { weeklyFraction: 0.58, weeklyResetTime: RESET, updatedAt: Date.now() },
+  },
 })
 
 const pool: AccountPoolData = {
   version: 1,
-  mode: 'sequential',
   defaultCooldownMs: 900_000,
   maxCooldownMs: 3_600_000,
-  activeAccountIds: { google: 'acc_dao', argon: 'acc_ele' },
-  resolvedActiveAccountIds: { google: 'acc_dao', argon: 'acc_ele' },
-  lastActiveAccountId: 'acc_dao',
-  accounts: [dao, ele],
+  primaryAccountId: 'acc_dao',
+  accounts: [dao],
 }
 
-const argonView = buildSessionView({ poolData: pool, accounts: [dao, ele], model: 'gemini-4-argon-high' })
+const argonView = buildSessionView({ poolData: pool, accounts: [dao], model: 'gemini-4-argon-high' })
 
-test('a session view wins: the badge shows the Argon account and number', () => {
+test('a session view wins: the badge shows the Argon book of the primary account', () => {
   const readout = resolveBadgeReadout({
     pool,
     accounts: pool.accounts,
@@ -56,10 +50,10 @@ test('a session view wins: the badge shows the Argon account and number', () => 
     sessionScoped: true,
     now: Date.now(),
   })
-  assert.equal(readout.accountId, 'acc_ele')
+  assert.equal(readout.accountId, 'acc_dao')
   assert.equal(readout.percent, 58)
   assert.equal(readout.window, 'weekly')
-  assert.equal(readout.source, 'session')
+  assert.equal(readout.source, 'predicted')
 })
 
 test('a session with no answer yet claims nothing instead of showing google', () => {
@@ -108,12 +102,12 @@ test('the rendered badge no longer announces another family\'s account for a ses
     agyModalStore.setOpen(false)
     publishStatusSnapshot({ pool } as never)
     const scoped = renderBadge({ sessionId: 'session-1' })
-    assert.equal(/AGY · dao/.test(scoped), false, 'an unresolved session must not print the google account')
-    assert.match(scoped, /AGY \(2\)/, 'it falls back to the account count only')
+    assert.equal(/AGY · dao/.test(scoped), false, 'an unresolved session must not print the account')
+    assert.match(scoped, /AGY \(1\)/, 'it falls back to the account count only')
     assert.equal(/98%/.test(scoped), false, 'and prints no percentage it cannot attribute')
 
     const unscoped = renderBadge()
-    assert.match(unscoped, /AGY · dao/, 'the session-less preview still reads the google pointer')
+    assert.match(unscoped, /AGY · dao/, 'the session-less preview still reads the primary account')
     assert.match(unscoped, /98%/)
   } finally {
     agyModalStore.setOpen(prevOpen)

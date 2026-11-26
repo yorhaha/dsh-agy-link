@@ -87,7 +87,7 @@ test('readAgyRunLogText only returns log files created by this run', () => {
 test('noteAuthFailure: a single ambiguous AUTH must NOT hard-quarantine an account', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-auth-strike-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('Ambiguous')
+  const acc = pool.getPrimaryAccount()
 
   const quarantined = pool.noteAuthFailure(acc.id, 'agy is not signed in — run /agy auth to login')
   assert.equal(quarantined, false, 'first strike ⇒ rotate away, do not quarantine')
@@ -101,7 +101,7 @@ test('noteAuthFailure: a single ambiguous AUTH must NOT hard-quarantine an accou
 test('noteAuthFailure: a success resets the confirmation streak', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-auth-streak-reset-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('Recovers')
+  const acc = pool.getPrimaryAccount()
 
   pool.noteAuthFailure(acc.id, 'agy is not signed in')
   pool.recordSuccess(acc.id, 'google')
@@ -120,7 +120,7 @@ test('AUTH_CONFIRM_STRIKES stays at 2', () => {
 test('markAuthRequired keeps its immediate, authoritative semantics', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-auth-authoritative-'))
   const pool = new AccountPoolManager(dir)
-  const acc = pool.createAccountSlot('Revoked')
+  const acc = pool.getPrimaryAccount()
   pool.markAuthRequired(acc.id, 'invalid_grant: Token has been expired or revoked')
   assert.equal(pool.getAccount(acc.id)!.authRequired, true, 'the direct OAuth path must still quarantine on first sight')
 })

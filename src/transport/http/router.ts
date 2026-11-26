@@ -5,7 +5,7 @@ import type { HostServices } from '../../host/services.ts'
 import type { RouteRegistrar, WebServerLike } from './respond.ts'
 import { register as registerStatus } from './routes/status.ts'
 import { register as registerSessionView } from './routes/session-view.ts'
-import { register as registerPool } from './routes/pool.ts'
+import { register as registerAccount } from './routes/account.ts'
 import { register as registerAuth } from './routes/auth.ts'
 import { register as registerConfig } from './routes/config.ts'
 import { register as registerMedia } from './routes/media.ts'
@@ -22,7 +22,7 @@ export function registerRoutes(webServer: WebServerLike, services: HostServices)
   }
   registerStatus(reg, services)
   registerSessionView(reg, services)
-  registerPool(reg, services)
+  registerAccount(reg, services)
   registerAuth(reg, services)
   registerConfig(reg, services)
   registerMedia(reg, services)

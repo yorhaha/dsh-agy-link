@@ -1,17 +1,19 @@
 // Which account the console should treat as "in use" for each model family.
 //
-// Two DIFFERENT questions live here and must not be conflated:
-//   • resolveFamilyActiveIds  — who the scheduler would use (pin first, then the
-//                               eligibility PREDICTION for an unpinned family).
-//   • resolveFamilyPinnedIds  — who is actually pinned (explicit "设为当前", or the
-//                               account a run really used).
-// Rendering an unpinned prediction under an "in use" label is what made the
-// panel contradict the running session (2026-11-23), so callers compare both.
+// The pool now holds exactly ONE account (the system HOME sign-in), so there is
+// nothing to pin or rotate: the primary account is the answer for every family.
+// The two exported names are kept because AccountsPanel still distinguishes an
+// "in use" card from a merely eligible one; both now resolve to that account.
 import type { AccountPoolData } from '../../common/pool-types.ts';
 import { QUOTA_FAMILIES, type QuotaFamily } from '../../common/quota-bench.ts';
 
 type OptimisticByFamily = Partial<Record<QuotaFamily, string>> | undefined;
 type OptimisticId = string | null | undefined;
+
+/** The one account this pool serves with: the primary, else the only stored row. */
+function primaryAccountId(pool: AccountPoolData | undefined): string | undefined {
+	return pool?.primaryAccountId ?? pool?.accounts[0]?.id;
+}
 
 export function resolveFamilyActiveIds(
 	pool: AccountPoolData | undefined,
@@ -19,14 +21,12 @@ export function resolveFamilyActiveIds(
 	optimisticActiveId: OptimisticId,
 ): Partial<Record<QuotaFamily, string>> {
 	const out: Partial<Record<QuotaFamily, string>> = {};
+	const primary = primaryAccountId(pool);
 	for (const fam of QUOTA_FAMILIES) {
 		out[fam] =
 			optimisticActiveByFamily?.[fam] ??
 			(fam === 'google' ? optimisticActiveId ?? undefined : undefined) ??
-			pool?.resolvedActiveAccountIds?.[fam] ??
-			(fam === 'google'
-				? (pool?.activeAccountId ?? pool?.lastActiveAccountId ?? pool?.activeAccountIds?.google ?? pool?.primaryAccountId)
-				: pool?.activeAccountIds?.[fam]);
+			primary;
 	}
 	return out;
 }
@@ -36,14 +36,5 @@ export function resolveFamilyPinnedIds(
 	optimisticActiveByFamily: OptimisticByFamily,
 	optimisticActiveId: OptimisticId,
 ): Partial<Record<QuotaFamily, string>> {
-	const out: Partial<Record<QuotaFamily, string>> = {};
-	for (const fam of QUOTA_FAMILIES) {
-		out[fam] =
-			optimisticActiveByFamily?.[fam] ??
-			(fam === 'google' ? optimisticActiveId ?? undefined : undefined) ??
-			(fam === 'google'
-				? (pool?.activeAccountId ?? pool?.activeAccountIds?.google ?? pool?.lastActiveAccountId)
-				: pool?.activeAccountIds?.[fam]);
-	}
-	return out;
+	return resolveFamilyActiveIds(pool, optimisticActiveByFamily, optimisticActiveId);
 }

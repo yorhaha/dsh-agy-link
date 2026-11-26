@@ -233,7 +233,11 @@ test('a token that cannot be brought into the window makes the CLI quota read st
 test('prepareIsolatedCliToken refreshes the isolated token file but never writes the credential slot', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-cli-token-isolated-'))
   const pool = new AccountPoolManager(dir)
-  const isolated = pool.createAccountSlot('Isolated')
+  // The single primary account, moved off the system HOME so "isolated" token
+  // semantics still have a per-account token file to refresh.
+  const isolated = pool.getPrimaryAccount()
+  isolated.dir = join(dir, 'isolated')
+  isolated.systemHome = false
   let storedReads = 0
   let slotWrites = 0
 

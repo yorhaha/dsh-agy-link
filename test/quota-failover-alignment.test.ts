@@ -22,7 +22,6 @@ import { isQuotaBenched } from '../src/common/quota-bench.ts'
 import { AgyAdapter, type AgyAdapterDeps } from '../src/host/adapter.ts'
 import { ModelCatalog } from '../src/host/models.ts'
 import { AccountPoolManager } from '../src/host/pool.ts'
-import { defineAgyMirrorTool, parseMirrorInvocation } from '../src/host/mirror-tool.ts'
 import { RunRecording, RunRegistry } from '../src/host/recording.ts'
 import { SessionStore } from '../src/host/sessions.ts'
 import { runAgyOnce } from '../src/host/oneshot.ts'
@@ -78,48 +77,7 @@ async function collect(gen: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> 
   return out
 }
 
-async function runTurn(
-  adapter: AgyAdapter,
-  base: Message[],
-  extra: Partial<GenerateOptions> & Record<string, unknown> = {},
-  replayRuns?: RunRegistry,
-): Promise<{ chunks: StreamChunk[]; messages: Message[] }> {
-  const messages = [...base]
-  const all: StreamChunk[] = []
-  for (let hop = 0; hop < 12; hop++) {
-    const chunks = await collect(adapter.stream(opts([...messages], extra)))
-    all.push(...chunks)
-    const finish = chunks[chunks.length - 1] as { type: string; reason: { kind: string } } | undefined
-    if (!finish || finish.type !== 'finish') throw new Error('span ended without finish')
-    if (finish.reason.kind !== 'tool-calls') return { chunks: all, messages }
-    const end = chunks.find(
-      (c) => c.type === 'block-end' && (c as { block: { type: string } }).block.type === 'tool-call',
-    ) as unknown as { block: { id: string; name: string; arguments: string } } | undefined
-    if (!end) throw new Error('tool-calls finish without tool-call block')
-    const parsed = end.block.name === 'run_code'
-      ? parseMirrorInvocation((JSON.parse(end.block.arguments) as { code: string }).code)!
-      : (JSON.parse(end.block.arguments) as { run: string; step: number })
-    messages.push({ role: 'assistant', content: [end.block] } as unknown as Message)
-    let output = 'replayed'
-    let isError = false
-    if (replayRuns) {
-      try {
-        output = String(await defineAgyMirrorTool({ runs: replayRuns }).execute(parsed as never, { signal: new AbortController().signal } as never))
-      } catch (err) {
-        isError = true
-        output = String(err)
-      }
-    }
-    messages.push({
-      role: 'user',
-      content: [{ type: 'tool-result', toolCallId: end.block.id, content: [{ type: 'text', text: output }], isError }],
-      source: { kind: 'tool', callId: end.block.id },
-    } as unknown as Message)
-  }
-  throw new Error('runTurn exceeded hop budget')
-}
-
-describe('quota failover alignment across subagents, aux, and tools', () => {
+describe('quota handling across subagents, aux, and tools', () => {
   test('1. diagnostics helpers parse 429 JSON, QUOTA_EXHAUSTED, reset after, transient bursts, and model name', () => {
     const sub429 = 'Encountered error in step execution: image failed to generate: failed to generate content: 429 Too Many Requests, body: {\n  "error": {\n    "code": 429,\n    "message": "You have exhausted your capacity on this model. Your quota will reset after 4h58m46s.",\n    "status": "RESOURCE_EXHAUSTED",\n    "details": [{\n      "@type": "type.googleapis.com/google.rpc.ErrorInfo",\n      "reason": "QUOTA_EXHAUSTED",\n      "metadata": { "model": "gemini-3.1-flash-image", "quotaResetDelay": "4h58m46.438781284s" }\n    }]\n  }\n}'
     assert.equal(looksLikeHardRateLimit(sub429), true)
@@ -179,7 +137,7 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
     assert.equal(isQuotaBenched(acc, 'google', now, 'gemini-3.1-flash-image'), false)
   })
 
-  test('3. partial-response hard quota exhaustion stays non-consumable, cools down, and rotates', async () => {
+  test('3. partial-response hard quota exhaustion stays non-consumable and benches the primary account', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agy-partial-quota-'))
     const prevMode = process.env.FAKE_AGY_MODE
     try {
@@ -198,16 +156,17 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
       assert.equal(rec.hasFinishableEventFrom(0), false)
 
       const pool = new AccountPoolManager(join(root, 'pool'))
-      const second = pool.createAccountSlot('Second')
-      const primary = pool.getAccounts()[0]!
-      const { adapter, runs } = makeAdapter(root, {}, { pool })
-      const res = await runTurn(adapter, [msg('user', 'count files')], { sessionId: 'sess-partial' as never }, runs)
-      const finish = res.chunks[res.chunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
-      assert.equal(finish.reason.kind, 'error')
-      assert.equal(finish.reason.failure?.code, Err.RATE_LIMIT)
+      const primary = pool.getPrimaryAccount()
+      const { adapter } = makeAdapter(root, {}, { pool })
+      const span = await collect(adapter.stream(opts([msg('user', 'count files')], { sessionId: 'sess-partial' as never })))
+      const finish = span[span.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
+      // Single account: the cut span surfaces as unusable tool-calls (no
+      // answer), and the 429 benches the only account instead of rotating.
+      assert.equal(finish.reason.kind, 'tool-calls')
+      assert.equal(span.some((c) => c.type === 'text-delta'), false, 'quota text must not be consumed as an answer')
       const cdUntil = primary.cooldowns.google?.cooldownUntil ?? 0
       assert.ok(cdUntil - Date.now() > 3 * 3600_000, `expected >3h cooldown, got ${cdUntil - Date.now()}`)
-      assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
+      assert.equal(pool.selectAccount('google'), null, 'the only account is benched by the 429')
     } finally {
       process.env.FAKE_AGY_MODE = prevMode
       rmSync(root, { recursive: true, force: true })
@@ -310,95 +269,7 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
     }
   })
 
-  test('5. Live subagent MODEL-scoped quota keeps the run alive, pauses only that model, never moves the pointer', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'agy-sub-live-'))
-    const prevMode = process.env.FAKE_AGY_MODE
-    const prevInv = process.env.FAKE_AGY_INVOCATION_FILE
-    const prevWait = process.env.FAKE_AGY_SUBAGENT_WAIT_MS
-    const invFile = join(root, 'inv.txt')
-    try {
-      process.env.FAKE_AGY_MODE = 'subagent-quota-live'
-      process.env.FAKE_AGY_INVOCATION_FILE = invFile
-      process.env.FAKE_AGY_SUBAGENT_WAIT_MS = '2000'
-
-      // 2 isolated accounts -> the image-model 429 must NOT abort the run nor
-      // move the family pointer: it only pauses that model on acc1.
-      const pool2 = new AccountPoolManager(join(root, 'pool2'))
-      pool2.setAccountEnabled('acc_primary', false)
-      const acc1 = pool2.createAccountSlot('A1')
-      const acc2 = pool2.createAccountSlot('A2')
-      const { adapter: a2 } = makeAdapter(join(root, 'a2'), {}, { pool: pool2 })
-      const chunks2 = await collect(a2.stream(opts([msg('user', 'run subagent')], { sessionId: 'sess-sub2' as never })))
-      const finish2 = chunks2[chunks2.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
-      assert.equal(finish2.reason.kind, 'stop', 'a model-scoped 429 must not kill the turn')
-      assert.equal(pool2.getAccount(acc1.id)?.cooldowns?.google, undefined)
-      assert.equal(pool2.getPoolData().lastActiveAccountId, acc1.id, 'the sticky pointer must stay on acc1')
-      assert.ok(acc2.id, 'the spare account stays available for later turns')
-
-      // 1 isolated account (no alternative) -> cools account but does NOT kill prematurely
-      writeFileSync(invFile, '')
-      process.env.FAKE_AGY_SUBAGENT_WAIT_MS = '650'
-      const pool1 = new AccountPoolManager(join(root, 'pool1'))
-      pool1.setAccountEnabled('acc_primary', false)
-      const solo = pool1.createAccountSlot('Solo')
-      const { adapter: a1 } = makeAdapter(join(root, 'a1'), {}, { pool: pool1 })
-      const chunks1 = await collect(a1.stream(opts([msg('user', 'run subagent solo')], { sessionId: 'sess-sub1' as never })))
-      const finish1 = chunks1[chunks1.length - 1] as { type: string; reason: { kind: string } }
-      assert.equal(finish1.reason.kind, 'stop')
-      assert.equal(pool1.getAccount(solo.id)?.cooldowns?.google, undefined)
-    } finally {
-      process.env.FAKE_AGY_MODE = prevMode
-      if (prevInv === undefined) delete process.env.FAKE_AGY_INVOCATION_FILE
-      else process.env.FAKE_AGY_INVOCATION_FILE = prevInv
-      if (prevWait === undefined) delete process.env.FAKE_AGY_SUBAGENT_WAIT_MS
-      else process.env.FAKE_AGY_SUBAGENT_WAIT_MS = prevWait
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  test('6. retry policy scales to pool size and isAux fails over in-adapter (except TOS_VIOLATION)', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'agy-aux-retry-'))
-    const prevMode = process.env.FAKE_AGY_MODE
-    const prevInv = process.env.FAKE_AGY_INVOCATION_FILE
-    const invFile = join(root, 'inv.txt')
-    try {
-      const pool7 = new AccountPoolManager(join(root, 'pool7'))
-      for (let i = 2; i <= 7; i++) pool7.createAccountSlot(`S${i}`)
-      const { adapter: a7 } = makeAdapter(join(root, 'a7'), {}, { pool: pool7 })
-      assert.equal(a7.providerRetryPolicy('agy').maxRetries, 6)
-
-      // isAux compaction auto-failover across quota-once -> succeeds inside single stream() call
-      process.env.FAKE_AGY_MODE = 'quota-once'
-      process.env.FAKE_AGY_INVOCATION_FILE = invFile
-      writeFileSync(invFile, '')
-      const pool2 = new AccountPoolManager(join(root, 'pool2'))
-      pool2.createAccountSlot('Second')
-      const { adapter: a2 } = makeAdapter(join(root, 'a2'), {}, { pool: pool2 })
-      const auxChunks = await collect(a2.stream(opts([msg('user', 'summarize')], { purpose: 'compaction' as never })))
-      const auxFinish = auxChunks[auxChunks.length - 1] as { type: string; reason: { kind: string } }
-      assert.equal(auxFinish.reason.kind, 'stop')
-      assert.equal(readFileSync(invFile, 'utf8').split('\n').filter(Boolean).length, 2)
-
-      // TOS_VIOLATION must NEVER fail over across sibling accounts even on isAux
-      process.env.FAKE_AGY_MODE = 'tos-violation'
-      writeFileSync(invFile, '')
-      const poolTos = new AccountPoolManager(join(root, 'pool-tos'))
-      poolTos.createAccountSlot('Backup')
-      const { adapter: aTos } = makeAdapter(join(root, 'atos'), {}, { pool: poolTos })
-      const tosChunks = await collect(aTos.stream(opts([msg('user', 'summarize')], { purpose: 'compaction' as never })))
-      const tosFinish = tosChunks[tosChunks.length - 1] as { type: string; reason: { kind: string; failure?: { code: string } } }
-      assert.equal(tosFinish.reason.kind, 'error')
-      assert.equal(tosFinish.reason.failure?.code, Err.AGY_ERROR)
-      assert.equal(readFileSync(invFile, 'utf8').split('\n').filter(Boolean).length, 1)
-    } finally {
-      process.env.FAKE_AGY_MODE = prevMode
-      if (prevInv === undefined) delete process.env.FAKE_AGY_INVOCATION_FILE
-      else process.env.FAKE_AGY_INVOCATION_FILE = prevInv
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  test('7. runAgyOnce cools exhausted account, switches to next account, refuses fallback to undefined when all unavailable, and stops on TOS_VIOLATION', async () => {
+  test('7. runAgyOnce refuses to spawn when the primary is unavailable and stops on TOS_VIOLATION', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agy-oneshot-'))
     const prevMode = process.env.FAKE_AGY_MODE
     const prevInv = process.env.FAKE_AGY_INVOCATION_FILE
@@ -407,26 +278,13 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
       process.env.FAKE_AGY_MODE = 'quota-once'
       process.env.FAKE_AGY_INVOCATION_FILE = invFile
       writeFileSync(invFile, '')
-      const pool = new AccountPoolManager(join(root, 'pool'))
-      const second = pool.createAccountSlot('Second')
-      const res = await runAgyOnce(
-        {
-          cfg: () => ({ ...defaultConfig(), permissionMode: 'plan', timeoutMs: 10_000 }),
-          bin: () => fakeBin,
-          pool: () => pool,
-        },
-        { prompt: 'ask question' },
-      )
-      assert.equal(res.ok, true, res.error)
-      assert.equal(res.text, 'There are 2 files, 6 words total.')
-      assert.equal(readFileSync(invFile, 'utf8').split('\n').filter(Boolean).length, 2)
-      assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
-      assert.ok((pool.getAccounts()[0]!.cooldowns.google?.cooldownUntil ?? 0) > Date.now())
 
-      // All accounts exhausted -> fail without spawning as undefined/primary
-      process.env.FAKE_AGY_MODE = 'real-quota'
-      pool.recordFailure(second.id, 'google', '429')
-      writeFileSync(invFile, '')
+      // The single account is already benched -> fail without spawning against
+      // an unavailable/undefined account.
+      const pool = new AccountPoolManager(join(root, 'pool'))
+      const primary = pool.getPrimaryAccount()
+      pool.recordFailure(primary.id, 'google', '429')
+
       const noneRes = await runAgyOnce(
         {
           cfg: () => ({ ...defaultConfig(), permissionMode: 'plan', timeoutMs: 10_000 }),
@@ -439,10 +297,9 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
       assert.match(noneRes.error ?? '', /unavailable/i)
       assert.equal(readFileSync(invFile, 'utf8').split('\n').filter(Boolean).length, 0)
 
-      // TOS_VIOLATION -> stops on 1st attempt
+      // TOS_VIOLATION -> stops on the 1st attempt, no retry.
       process.env.FAKE_AGY_MODE = 'tos-violation'
       const poolTos = new AccountPoolManager(join(root, 'pool-tos'))
-      poolTos.createAccountSlot('Second')
       writeFileSync(invFile, '')
       const tosRes = await runAgyOnce(
         {
@@ -462,11 +319,10 @@ describe('quota failover alignment across subagents, aux, and tools', () => {
     }
   })
 
-  test('10. runAcpAttempt treats partial-response 429 quota error as RATE_LIMIT and rotates account', async () => {
+  test('10. runAcpAttempt treats partial-response 429 quota error as RATE_LIMIT and benches the account', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agy-acp-quota-'))
     const pool = new AccountPoolManager(join(dir, 'pool'))
-    const second = pool.createAccountSlot('Second')
-    const primary = pool.getAccounts()[0]!
+    const primary = pool.getPrimaryAccount()
     const scriptPath = join(dir, 'mock-acp-quota.mjs')
     writeFileSync(scriptPath, `
 import { createInterface } from 'node:readline';
@@ -548,7 +404,7 @@ rl.on('close', () => process.exit(0));
       assert.equal(rec.failureInfo?.kind, 'error')
       assert.equal(rec.failureInfo?.code, Err.RATE_LIMIT)
       assert.ok((primary.cooldowns.google?.cooldownUntil ?? 0) > Date.now() + 3600_000)
-      assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
+      assert.equal(pool.selectAccount('google'), null, 'the sole account stays benched')
     } finally {
       await Promise.all(spawned.map((p) => new Promise<void>((r) => { p.once('exit', () => r()); p.close(); setTimeout(r, 200) })))
       acpPool.dispose()
@@ -592,11 +448,10 @@ rl.on('close', () => process.exit(0));
     assert.equal(textOut, '⚠ 端口 8080 已被占用。')
   })
 
-  test('13. runAcpAttempt cools & rotates when agy emits ⚠ Individual quota reached with end_turn (both post-tool and empty turn)', async () => {
+  test('13. runAcpAttempt cools the account when agy emits ⚠ Individual quota reached with end_turn (both post-tool and empty turn)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agy-acp-banner-quota-'))
     const pool = new AccountPoolManager(join(dir, 'pool'))
-    const second = pool.createAccountSlot('Second')
-    const primary = pool.getAccounts()[0]!
+    const primary = pool.getPrimaryAccount()
     const scriptPath = join(dir, 'mock-acp-banner.mjs')
     writeFileSync(scriptPath, `
 import { createInterface } from 'node:readline';
@@ -698,7 +553,6 @@ rl.on('close', () => process.exit(0));
       assert.equal(finish1.reason.failure?.code, Err.RATE_LIMIT)
       assert.equal(span1.some((c) => c.type === 'text-delta'), false, 'must not leak quota banner text before rotating')
       assert.ok((pool.getAccount(primary.id)?.cooldowns.google?.cooldownUntil ?? 0) > Date.now() + 4 * 3600_000)
-      assert.equal(pool.getPoolData().lastActiveAccountId, second.id)
 
       // 2) Immediate empty turn: must NOT return null (CLI fallback on same account), must settle RATE_LIMIT
       delete primary.cooldowns.google

@@ -158,7 +158,6 @@ test('mergeSentImageIds: dedupes, skips junk, caps to the newest ids', () => {
 
 function hygieneServices(over: {
   accounts?: ManagedAccount[]
-  swept?: number
   logsSwept?: number
   cleanupThrows?: boolean
   logs: string[]
@@ -174,7 +173,6 @@ function hygieneServices(over: {
   const pool = {
     dir: '/tmp/pool',
     getAccounts: () => accounts,
-    sweepStaleStaging: () => over.swept ?? 0,
     sweepOldLogs: () => over.logsSwept ?? 0,
     markAuthRequired: () => {},
   }
@@ -186,33 +184,29 @@ function hygieneServices(over: {
   } as unknown as HostServices
 }
 
-test('boot-hygiene: staging/log sweeps are deferred, not run on the plugin-load path', () => {
+test('boot-hygiene: log sweeps are deferred, not run on the plugin-load path', () => {
   const restore = setPlatform('linux')
   const logs: string[] = []
   try {
     const services = hygieneServices({
-      accounts: [account('acc_a', { dir: '' }), account('acc_b', { dir: '/tmp/acc_b' })],
-      swept: 2,
+      accounts: [account('acc_primary', { systemHome: true })],
       logsSwept: 3,
       logs,
     })
     runBootHygiene(services)
-    // Startup must stay cheap: a pool of N accounts no longer pays N staging
-    // walks plus the ecosystem mirror before the first frame.
-    assert.equal(logs.some((l) => l.includes('stale staging')), false)
+    // Startup must stay cheap: the ecosystem log mirror does not run before
+    // the first frame.
     assert.equal(logs.some((l) => l.includes('old log file')), false)
 
-    // The deferred pass owns them now, and reports one summary line.
+    // The deferred pass owns it now, and reports one summary line.
     const result = runMaintenancePass({
-      accounts: () => [],
-      sweepStaging: () => 2,
       sweepLogs: () => 3,
       log: (m) => logs.push(m),
       reapOrphans: false,
     })
-    assert.equal(result.staging, 2)
+    assert.equal(result.staging, 0)
     assert.equal(result.logs, 3)
-    assert.ok(logs.some((l) => l.includes('maintenance: swept') && l.includes('2 staging dir(s)') && l.includes('3 old log(s)')))
+    assert.ok(logs.some((l) => l.includes('maintenance: swept') && l.includes('3 old log(s)')))
   } finally {
     restore()
   }
@@ -222,7 +216,7 @@ test('boot-hygiene: zero sweeps emit no log, and a throwing cleanup is swallowed
   const restore = setPlatform('linux')
   const logs: string[] = []
   try {
-    runBootHygiene(hygieneServices({ swept: 0, logsSwept: 0, cleanupThrows: true, logs }))
+    runBootHygiene(hygieneServices({ logsSwept: 0, cleanupThrows: true, logs }))
     assert.deepEqual(logs, [])
   } finally {
     restore()
@@ -236,7 +230,6 @@ type SelPoolOpts = {
   eligible?: (a: ManagedAccount, f: string) => boolean
   select?: (f: string) => ManagedAccount | null
   explain?: (a: ManagedAccount, f: string) => 'disabled' | 'auth' | 'cooldown' | 'quota' | 'unsupported' | 'model-unsupported' | null
-  lastActive?: string
   countdown?: number | null
   resetCountdown?: number | null
   withExplain?: boolean
@@ -245,7 +238,7 @@ type SelPoolOpts = {
 
 function selPool(opts: SelPoolOpts) {
   const accounts = opts.accounts ?? []
-  const calls = { setActive: [] as Array<[string, string]>, select: [] as string[] }
+  const calls = { select: [] as string[] }
   const pool: Record<string, unknown> = {
     getAccounts: () => accounts,
     getAccount: (id: string) => accounts.find((a) => a.id === id),
@@ -254,8 +247,13 @@ function selPool(opts: SelPoolOpts) {
       calls.select.push(f)
       return opts.select ? opts.select(f) : null
     },
-    setActiveAccount: (id: string, f: string) => calls.setActive.push([id, f]),
-    getPoolData: () => ({ lastActiveAccountId: opts.lastActive }),
+    getPoolData: () => ({
+      version: 1,
+      defaultCooldownMs: 900_000,
+      maxCooldownMs: 3_600_000,
+      primaryAccountId: accounts[0]?.id,
+      accounts,
+    }),
     getEarliestResetCountdown: () => opts.resetCountdown ?? null,
   }
   if (opts.withExplain !== false) {
@@ -294,26 +292,16 @@ test('account-selection: no pool returns an undefined account but a resolved fam
   assert.equal(out.activeModel, 'gemini-3.8-flash')
 })
 
-test('account-selection: sticky affinity reuses the session account and pins it active', async () => {
+test('account-selection: the primary account serves the session without stamping a pointer', async () => {
   const a = account('acc_x')
-  const { pool, calls } = selPool({ accounts: [a], select: () => null, lastActive: undefined })
+  const { pool, calls } = selPool({ accounts: [a], select: () => a })
   const { deps } = selectionDeps(pool, { 's1:acc_x': { conversationId: 'c', lastMessageCount: 0, updatedAt: 5 } })
   const out = await selectSessionAccount({ deps, cfg: cfgSelect(), model: 'gemini-3.8-flash', isAux: false, sessionKey: 's1' })
   assert.equal(out.account?.id, 'acc_x')
-  assert.deepEqual(calls.setActive, [['acc_x', 'google']])
-  assert.deepEqual(calls.select, []) // sticky hit short-circuits selectAccount
+  assert.deepEqual(calls.select, ['google'], 'single-account selection consults the picker once')
 })
 
-test('account-selection: a stale binding to a deleted account is dropped', async () => {
-  const live = account('acc_live')
-  const { pool } = selPool({ accounts: [live], select: () => live })
-  const { deps, deleted } = selectionDeps(pool, { 's1:acc_gone': { conversationId: 'c', lastMessageCount: 0, updatedAt: 5 } })
-  const out = await selectSessionAccount({ deps, cfg: cfgSelect(), model: 'gemini-3.8-flash', isAux: false, sessionKey: 's1' })
-  assert.ok(deleted.includes('s1:acc_gone'))
-  assert.equal(out.account?.id, 'acc_live')
-})
-
-test('account-selection: ineligible sticky account falls through to selectAccount', async () => {
+test('account-selection: the pool pick is the session account', async () => {
   const a = account('acc_x')
   const { pool } = selPool({ accounts: [a], eligible: () => false, select: () => a })
   const { deps } = selectionDeps(pool, { 's1:acc_x': { conversationId: 'c', lastMessageCount: 0, updatedAt: 5 } })
@@ -321,32 +309,7 @@ test('account-selection: ineligible sticky account falls through to selectAccoun
   assert.equal(out.account?.id, 'acc_x')
 })
 
-test('account-selection: win32 + parallelSameAccount still honours a bound session over the pool pointer', async () => {
-  // The pack-share rule exists so sessions with NO binding converge on one
-  // credential slot. It must not override a session that already ran on an
-  // account: that silently hops a live conversation between accounts (the
-  // adapter-level regression is 'session sticks to current account').
-  const stickyAcc = account('acc_sticky')
-  const poolAcc = account('acc_pool')
-  const { pool, calls } = selPool({ accounts: [stickyAcc, poolAcc], select: () => poolAcc, lastActive: 'acc_pool' })
-  const { deps } = selectionDeps(pool, { 's1:acc_sticky': { conversationId: 'c', lastMessageCount: 0, updatedAt: 5 } })
-  const restore = setPlatform('win32')
-  try {
-    const out = await selectSessionAccount({
-      deps,
-      cfg: cfgSelect({ parallelSameAccount: true }),
-      model: 'gemini-3.8-flash',
-      isAux: false,
-      sessionKey: 's1',
-    })
-    assert.equal(out.account?.id, 'acc_sticky', 'the session keeps the account it already ran on')
-    assert.deepEqual(calls.select, [], 'the pool candidate is not consulted when a binding is usable')
-  } finally {
-    restore()
-  }
-})
-
-test('account-selection: win32 + parallelSameAccount pins the pool candidate directly', async () => {
+test('account-selection: the pool pick is used regardless of platform or pack-share', async () => {
   const a = account('acc_w')
   const { pool } = selPool({ accounts: [a], select: () => a })
   const { deps } = selectionDeps(pool)
@@ -423,7 +386,7 @@ async function expectUnavailable(pool: AccountPoolManager, cfg: PluginConfig = c
 test('account-selection: error reasons — all disabled', async () => {
   const { pool } = selPool({ accounts: [account('acc_a', { enabled: false })], select: () => null })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /all accounts are disabled/)
+  assert.match(message, /the Antigravity account is disabled/)
 })
 
 test('account-selection: error reasons — every enabled account needs re-login', async () => {
@@ -432,7 +395,7 @@ test('account-selection: error reasons — every enabled account needs re-login'
     select: () => null,
   })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /every account needs a re-login/)
+  assert.match(message, /the Antigravity account needs a re-login/)
 })
 
 test('account-selection: error reasons — all detail counters + wait string', async () => {
@@ -455,11 +418,12 @@ test('account-selection: error reasons — all detail counters + wait string', a
   })
   const { message, code } = await expectUnavailable(pool)
   assert.equal(code, 'AGY_ERROR')
-  assert.match(message, /1 in cooldown/)
-  assert.match(message, /1 quota-exhausted/)
-  assert.match(message, /1 lack google access/)
-  assert.match(message, /1 signed out/)
-  assert.match(message, /1 disabled/)
+  assert.match(message, /cannot serve google right now/)
+  assert.match(message, /in cooldown/)
+  assert.match(message, /quota-exhausted/)
+  assert.match(message, /no google access/)
+  assert.match(message, /signed out/)
+  assert.match(message, /disabled/)
   assert.match(message, /earliest reset in 25s/)
 })
 
@@ -470,7 +434,7 @@ test('account-selection: error reasons — unsupported-only hint', async () => {
     explain: () => 'unsupported',
   })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /No enabled account has access to google/)
+  assert.match(message, /This account's plan has no google access enabled/)
 })
 
 test('account-selection: model-unsupported hint does not blame the plan', async () => {
@@ -480,7 +444,7 @@ test('account-selection: model-unsupported hint does not blame the plan', async 
     explain: () => 'model-unsupported',
   })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /model.*not in any enabled account/i)
+  assert.match(message, /model.*not in the account's catalog/i)
   assert.doesNotMatch(message, /requires a plan with google enabled/)
 })
 
@@ -491,7 +455,7 @@ test('account-selection: error reasons — quota-only hint', async () => {
     explain: () => 'quota',
   })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /wait for the quota reset/)
+  assert.match(message, /wait for the quota reset/i)
 })
 
 test('account-selection: error reasons — explainIneligibility fallback and long reset', async () => {
@@ -506,7 +470,7 @@ test('account-selection: error reasons — explainIneligibility fallback and lon
     resetCountdown: null,
   })
   const { message } = await expectUnavailable(pool)
-  assert.match(message, /1 in cooldown/)
+  assert.match(message, /in cooldown/)
   assert.doesNotMatch(message, /earliest reset/)
 })
 

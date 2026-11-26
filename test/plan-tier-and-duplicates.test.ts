@@ -1,8 +1,8 @@
 // Regressions for two reported panel bugs:
 //  1. a paid account was badged Free (Flash-only Gemini group + a 5-hour window)
 //     while its twin was badged Ultra — the account is actually Pro;
-//  2. the same Google account sitting in the pool twice (primary + isolated
-//     copy) was counted as two accounts' worth of quota.
+//  (Duplicate-identity detection was removed with the multi-account pool: one
+//  account can no longer appear twice.)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -11,11 +11,6 @@ import {
   isStalePlanTier,
   resolveAccountPlanTier,
 } from '../src/common/plan-tier.ts'
-import {
-  duplicateAccountIds,
-  findDuplicateEmailGroups,
-  siblingAliases,
-} from '../src/common/account-duplicates.ts'
 import type { ManagedAccount } from '../src/common/pool-types.ts'
 
 const flashPaid = {
@@ -98,32 +93,6 @@ test('quotaUnavailable no_summary_access with no 5h window is Free', () => {
     }),
     'free',
   )
-})
-
-test('the same Google account twice is reported once, case-insensitively', () => {
-  const accounts = [
-    acc({ id: 'p', alias: '主账号', email: 'G986465568@gmail.com' }),
-    acc({ id: 'd', alias: 'g98', email: 'g986465568@gmail.com' }),
-    acc({ id: 'x', alias: 'dao', email: 'other@gmail.com' }),
-    acc({ id: 'n', alias: 'noemail' }),
-  ]
-  const groups = findDuplicateEmailGroups(accounts)
-  assert.equal(groups.length, 1)
-  assert.equal(groups[0]!.email, 'g986465568@gmail.com')
-  assert.deepEqual(groups[0]!.ids.sort(), ['d', 'p'])
-  assert.deepEqual([...duplicateAccountIds(accounts)].sort(), ['d', 'p'])
-  assert.deepEqual(siblingAliases(accounts[0]!, accounts), ['g98'])
-  assert.deepEqual(siblingAliases(accounts[2]!, accounts), [])
-  assert.deepEqual(siblingAliases(accounts[3]!, accounts), [], 'an empty email is never a duplicate')
-})
-
-test('a unique pool reports no duplicates and no siblings', () => {
-  const accounts = [
-    acc({ id: 'a', alias: 'a', email: 'a@x.com' }),
-    acc({ id: 'b', alias: 'b', email: 'b@x.com' }),
-  ]
-  assert.deepEqual(findDuplicateEmailGroups(accounts), [])
-  assert.equal(duplicateAccountIds(accounts).size, 0)
 })
 
 test('a free account reporting the unmetered 100% 5h placeholder is NOT Pro', () => {

@@ -170,7 +170,7 @@ export async function* dispatchCredentialSlot(
   let release: (() => void) | null = null
   let slotLease: Awaited<ReturnType<typeof acquireCredentialSlot>>
   let granted = false
-  let currentAccount = input.account
+  const currentAccount = input.account
   let dispatchBackoffMs = 2_000
   const maxDispatchAttempts = 1 + Math.max(0, cfg.dispatchRetries)
   // Set when the CALLER abandons this generator (Stop / stream closed) while
@@ -224,16 +224,15 @@ export async function* dispatchCredentialSlot(
           if (e.target !== 'primary' || isPrimaryAccount) {
             deps.pool.markAuthRequired(currentAccount.id, e.message)
           }
-          const next = attempt < maxDispatchAttempts ? deps.pool.selectAccount(input.family, input.activeModel) : undefined
-          if (next && next.id !== currentAccount.id) {
-            deps.log?.(`slot unavailable on ${currentAccount.id}: ${e.message} — failed over to ${next.id}`)
+          // A single-account pool has nowhere to fail over to, so the only
+          // retry left is the SAME account while attempts remain.
+          if (attempt < maxDispatchAttempts) {
+            deps.log?.(`slot unavailable on ${currentAccount.id}: ${e.message} — retrying the same account`)
             yield {
               type: 'reasoning-delta',
               index: STATUS_NOTICE_BLOCK_INDEX,
-              text: `[agy] 账号凭据不可用，正在自动切换至可用账号 ${next.alias || next.id}...\n`,
+              text: '[agy] 账号凭据不可用，正在重试同一账号...\n',
             }
-            currentAccount = next
-            input.account = next
             heartbeat.stop()
             await abortableDelay(dispatchBackoffMs, input.signal, 'request aborted during dispatch backoff')
             dispatchBackoffMs = Math.min(dispatchBackoffMs * 2, 15_000)

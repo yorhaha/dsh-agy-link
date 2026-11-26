@@ -51,7 +51,6 @@ export interface ConsoleTabsProps {
 	optimisticActiveByFamily: Partial<Record<QuotaFamily, string>>;
 	accountHandlers: AccountsPanelHandlers;
 	setCfg: (key: string, value: unknown) => Promise<void>;
-	setMode: (mode: string) => Promise<void>;
 	setSelectedModels: (ids: ReadonlyArray<string>) => Promise<void>;
 	setHiddenModels: (ids: ReadonlyArray<string>) => Promise<void>;
 }
@@ -121,7 +120,7 @@ export function renderConsoleTabBar(params: {
 }
 
 function renderAccountsTab(p: ConsoleTabsProps): unknown {
-	const { t, status, pool, accounts, loadingAction, setCfg, setMode } = p;
+	const { t, status, pool, accounts, loadingAction } = p;
 
 	return h('div', { className: 'agy2-stack' },
 		p.addAccountSection,
@@ -139,22 +138,6 @@ function renderAccountsTab(p: ConsoleTabsProps): unknown {
 			optimisticActiveByFamily: p.optimisticActiveByFamily,
 			handlers: p.accountHandlers,
 		}),
-		sectionCard('pool-schedule', t('section.poolSchedule'), [
-			h(Row, {
-				key: 'pool-mode',
-				left: rowCaption(t('pool.label')),
-				right: segGroup([
-					h(Button, {
-						variant: pool?.mode === 'sequential' || !pool?.mode ? 'segActive' : 'seg',
-						onClick: () => void setMode('sequential'),
-					}, t('pool.sequential')),
-					h(Button, {
-						variant: pool?.mode === 'round-robin' ? 'segActive' : 'seg',
-						onClick: () => void setMode('round-robin'),
-					}, t('pool.roundRobin')),
-				]),
-			}),
-		], undefined, 'refresh'),
 	);
 }
 

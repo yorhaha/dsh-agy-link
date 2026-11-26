@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { computeQuotaPacing } from '../src/common/quota-pacing.ts'
-import { orderByExpiry, nextQuotaResetAt } from '../src/domain/accounts/selection.ts'
+import { nextQuotaResetAt } from '../src/domain/accounts/selection.ts'
 import { AccountPoolManager } from '../src/host/pool.ts'
 import { PoolStore } from '../src/domain/accounts/store.ts'
 import { SessionStore } from '../src/host/sessions.ts'
@@ -58,60 +58,6 @@ test('computeQuotaPacing classifies surplus, on_track, burning_fast, reset and u
   assert.equal(reset.status, 'reset')
 })
 
-test('orderByExpiry ignores second-level resetTime jitter in same cohort and prefers higher surplus', () => {
-  const now = Date.parse('2026-11-18T12:00:00Z')
-  const accDrained = makeAcc({
-    id: 'acc_drained',
-    quotas: {
-      google: {
-        remainingFraction: 0.15,
-        resetTime: new Date(now + 2 * 3_600_000).toISOString(),
-        weeklyFraction: 0.12,
-        // 800ms earlier due to Google endpoint clock jitter, but nearly empty!
-        weeklyResetTime: new Date(now + 3 * 24 * 3_600_000 - 800).toISOString(),
-      },
-    },
-  })
-  const accSurplus = makeAcc({
-    id: 'acc_surplus',
-    quotas: {
-      google: {
-        remainingFraction: 0.92,
-        resetTime: new Date(now + 2 * 3_600_000 + 500).toISOString(),
-        weeklyFraction: 0.88,
-        weeklyResetTime: new Date(now + 3 * 24 * 3_600_000).toISOString(),
-      },
-    },
-  })
-  const pool = [accDrained, accSurplus]
-  const ordered = orderByExpiry(pool, pool, 'google', undefined, now)
-  assert.equal(ordered[0]?.id, 'acc_surplus')
-
-  // Argon keeps its OWN book: an account with no `argon` row has an UNKNOWN
-  // argon reset (NaN), and that Gemini surplus must never stand in for it.
-  assert.equal(
-    Number.isNaN(nextQuotaResetAt(accSurplus, 'argon')),
-    true,
-    'no argon row -> unknown argon reset, never the Gemini one',
-  )
-  const orderedArgon = orderByExpiry(pool, pool, 'argon', undefined, now)
-  assert.equal(orderedArgon.length, 2, 'unknown-reset accounts stay orderable, just deprioritised')
-
-  // A real argon row must outrank an unknown one.
-  const accWithArgon = makeAcc({
-    id: 'acc_with_argon',
-    quotas: {
-      argon: { weeklyFraction: 0.9, weeklyResetTime: new Date(now + 3 * 24 * 3_600_000).toISOString() },
-    },
-  })
-  const withArgon = [...pool, accWithArgon]
-  assert.equal(
-    orderByExpiry(withArgon, withArgon, 'argon', undefined, now)[0]?.id,
-    'acc_with_argon',
-    'a known argon reset beats accounts with no argon row',
-  )
-})
-
 test('PoolAdmin.recordSuccess never erases terminal TOS_VIOLATION quarantine', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-p2-pool-'))
   try {
@@ -131,12 +77,10 @@ test('PoolStore.persist merges fresher quotas, longer cooldowns and terminal TOS
   try {
     const storeA = new PoolStore(dir)
     const initial = storeA.bootstrapDefaultAccount(storeA.load().data)
-    storeA.markKnown('acc_primary')
 
     // Process B loads the same pool.json and writes a 429 cooldown + newer quota + TOS ban
     const storeB = new PoolStore(dir)
     const dataB = storeB.load().data
-    storeB.markKnown('acc_primary')
     const accB = dataB.accounts[0]!
     accB.cooldowns.anthropic = { cooldownUntil: Date.now() + 120_000, reason: '429 rate limit', consecutiveFailures: 1 }
     accB.quotas.google = { remainingFraction: 0.42, updatedAt: 5_000 }
@@ -224,49 +168,6 @@ test('ModelCatalog persists to disk for 0ms cold start and invalidates on agyVer
       agyVersion: () => ver,
     })
     assert.equal(cat3.getAccountCatalog('acc_pro'), undefined)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('QuotaService.refreshAllQuotas(true) skips disabled/TOS accounts and staggers same-proxy egress', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-p2-quota-'))
-  try {
-    const pool = new AccountPoolManager(dir)
-    const a1 = pool.createAccountSlot('A1')
-    pool.clearAuthRequired(a1.id, true)
-    pool.setAccountProxy(a1.id, 'http://127.0.0.1:7890')
-
-    const a2 = pool.createAccountSlot('A2')
-    pool.clearAuthRequired(a2.id, true)
-    pool.setAccountProxy(a2.id, 'http://127.0.0.1:7890')
-
-    const aBanned = pool.createAccountSlot('Banned')
-    pool.markAuthRequired(aBanned.id, 'TOS_VIOLATION: disabled for violation of Terms of Service')
-
-    const aDisabled = pool.createAccountSlot('Disabled')
-    pool.clearAuthRequired(aDisabled.id, true)
-    pool.setAccountEnabled(aDisabled.id, false)
-
-    // Disable primary so only our test accounts participate
-    pool.setAccountEnabled('acc_primary', false)
-
-    const starts = new Map<string, number>()
-    class TestQuota extends QuotaService {
-      override async refreshAccountQuota(acc: ManagedAccount): Promise<null> {
-        starts.set(acc.id, Date.now())
-        return null
-      }
-    }
-    const qs = new TestQuota(pool, () => '', () => '1.5.12', { forceStaggerMs: () => 60 })
-    await qs.refreshAllQuotas(true)
-
-    assert.equal(starts.has(aBanned.id), false, 'TOS banned account must never be polled in bulk refresh')
-    assert.equal(starts.has(aDisabled.id), false, 'Disabled account must never be polled in bulk refresh')
-    assert.equal(starts.has(a1.id), true)
-    assert.equal(starts.has(a2.id), true)
-    const gap = Math.abs((starts.get(a2.id) ?? 0) - (starts.get(a1.id) ?? 0))
-    assert.ok(gap >= 45, `expected same-proxy stagger >=45ms, got ${gap}ms`)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

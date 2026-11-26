@@ -9,7 +9,6 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { defaultConfig } from '../src/common/types.ts'
 import { baseModelSlug, type ManagedAccount } from '../src/common/pool-types.ts'
 import { isModelQuotaClear } from '../src/domain/accounts/selection.ts'
 import { AccountPoolManager } from '../src/host/pool.ts'
@@ -28,27 +27,22 @@ function fullGoogle(pool: AccountPoolManager, id: string, imageFraction = 1): vo
   })
 }
 
-/** Two enabled accounts on a clean pool (the built-in primary is disabled). */
-function twoAccounts(root: string): { pool: AccountPoolManager; a: ManagedAccount; b: ManagedAccount } {
+/** The single primary account on a clean pool, with its catalog discovered. */
+function primaryWithCatalog(root: string): { pool: AccountPoolManager; a: ManagedAccount } {
   const pool = new AccountPoolManager(join(root, 'pool'))
   pool.setCatalog({
     get: () => ({ source: 'discovered', models: [{ id: DRIVER }, { id: IMAGE }, { id: 'gemini-3.8-flash' }] }),
   })
-  const a = pool.createAccountSlot('acc-a')
-  const b = pool.createAccountSlot('acc-b')
-  for (const acc of pool.getAccounts()) {
-    if (acc.id !== a.id && acc.id !== b.id) pool.setAccountEnabled(acc.id, false)
-  }
+  const a = pool.getPrimaryAccount()
   fullGoogle(pool, a.id)
-  fullGoogle(pool, b.id)
-  return { pool, a, b }
+  return { pool, a }
 }
 
 describe('model-scoped cooldown', () => {
   test('a model 429 cools only that model; the family and its other models stay available', () => {
     const root = mkdtempSync(join(tmpdir(), 'agy-model-cd-'))
     try {
-      const { pool, a } = twoAccounts(root)
+      const { pool, a } = primaryWithCatalog(root)
       pool.recordModelFailure(a.id, IMAGE, 'You have exhausted your capacity on this model.', '2026-11-23T20:46:40Z')
 
       const after = pool.getAccount(a.id)!
@@ -67,7 +61,7 @@ describe('model-scoped cooldown', () => {
     try {
       const dir = join(root, 'pool')
       const pool = new AccountPoolManager(dir)
-      const a = pool.createAccountSlot('acc-a')
+      const a = pool.getPrimaryAccount()
       pool.recordModelFailure(a.id, IMAGE, 'capacity exhausted', '2026-11-23T20:46:40Z')
 
       const reloaded = new AccountPoolManager(dir)
@@ -83,15 +77,15 @@ describe('model-scoped cooldown', () => {
   test('selection takes a SECOND quota model into account (image bucket pre-filter)', () => {
     const root = mkdtempSync(join(tmpdir(), 'agy-model-cd-select-'))
     try {
-      const { pool, a, b } = twoAccounts(root)
+      const { pool, a } = primaryWithCatalog(root)
+      // The family row is healthy, but the image model's own bucket is drained.
       fullGoogle(pool, a.id, 0)
-      fullGoogle(pool, b.id, 1)
-      pool.markAccountActive(b.id, 'google')
 
-      // Without the hint the family is healthy on both accounts.
+      // Without the hint the family is healthy for the driver model.
       assert.ok(pool.selectAccount('google', DRIVER))
-      // With the image bucket as a second dimension, the drained account is skipped.
-      assert.equal(pool.selectAccount('google', DRIVER, IMAGE)?.id, b.id)
+      // With the image bucket as a second dimension, the account is rejected
+      // for that model instead of burning a request it cannot serve.
+      assert.equal(pool.selectAccount('google', DRIVER, IMAGE), null)
       assert.equal(isModelQuotaClear(a, 'google', IMAGE, Date.now()), false)
     } finally {
       rmSync(root, { recursive: true, force: true })

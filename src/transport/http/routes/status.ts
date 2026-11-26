@@ -32,13 +32,12 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
         const poolData = pool?.getPoolData ? pool.getPoolData(cfg.proxyUrl?.trim() || undefined) : undefined
         const activeId = (typeof pool?.getActiveAccountId === 'function')
           ? pool.getActiveAccountId('google')
-          : (poolData?.lastActiveAccountId ?? poolData?.primaryAccountId)
+          : poolData?.primaryAccountId
         const activeAcc = (activeId && typeof pool?.getAccount === 'function') ? pool.getAccount(activeId) : undefined
-        // The Settings chips must describe the SAME set the picker offers: with
-        // `poolWideCatalog` enabled, show the union instead of the active
-        // account's catalog (issue #107).
+        // The Settings chips must describe the SAME set the picker offers: the
+        // primary account's own catalog (there is no pool-wide union anymore).
         let supportedModels: ReturnType<typeof catalog.getModelsForAccount>
-        if (cfg.poolWideCatalog || !activeAcc || !pool || typeof catalog.getModelsForAccount !== 'function') {
+        if (!activeAcc || !pool || typeof catalog.getModelsForAccount !== 'function') {
           supportedModels = typeof catalog.getUnion === 'function'
             ? catalog.getUnion(pool?.getAccounts ? pool.getAccounts() : [], pool)
             : (typeof catalog.getAllKnownModels === 'function'
@@ -50,9 +49,9 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
         // Same account scope the picker merges quota rows for, so the panel and
         // the picker never disagree about which models exist.
         const allAccounts = typeof pool?.getAccounts === 'function' ? pool.getAccounts() : []
-        const quotaScope = cfg.poolWideCatalog ? allAccounts : (activeAcc ? [activeAcc] : allAccounts.slice(0, 1))
+        const quotaScope = activeAcc ? [activeAcc] : allAccounts.slice(0, 1)
         const sanitizedCatalogModels = selectableModels(supportedModels, quotaScope)
-        const activeCat = (!cfg.poolWideCatalog && activeAcc && typeof catalog.getAccountCatalog === 'function')
+        const activeCat = (activeAcc && typeof catalog.getAccountCatalog === 'function')
           ? (catalog.getAccountCatalog(activeAcc.id) ?? cat)
           : cat
         const catalogCount = typeof catalog.getModelsForAccount === 'function'
@@ -108,7 +107,6 @@ function handleStatus(services: HostServices, req: unknown, res: unknown): void 
           hiddenModels: cfg.hiddenModels,
           selectedModels: cfg.selectedModels,
           showHeaderBadge: cfg.showHeaderBadge,
-          poolWideCatalog: cfg.poolWideCatalog,
           bindings: Object.keys(store.all()).length,
           effortUnsupported: adapter.effortUnsupportedModels(),
           cacheStats: cacheMetrics.snapshot(),

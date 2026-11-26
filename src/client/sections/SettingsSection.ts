@@ -147,7 +147,7 @@ export function createSettingsSection(locale: LocaleLike): (props?: SettingsSect
 			aliasInputs, setAliasInputs, editingAliasId, setEditingAliasId,
 			expandedModels, toggleExpand, optimisticActiveByFamily,
 			accountHandlers: { ...accountActions, beginReauth: auth.handleBeginReauth },
-			setCfg: config.setCfg, setMode: config.setMode, setSelectedModels: config.setSelectedModels,
+			setCfg: config.setCfg, setSelectedModels: config.setSelectedModels,
 			setHiddenModels: (ids: ReadonlyArray<string>) => config.setCfg('hiddenModels', [...ids]),
 		});
 

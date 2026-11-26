@@ -171,7 +171,7 @@ test('runAgyOnce handles headless deny on empty exit-0, structured_output, effor
   writeFileSync(logFile, '')
   process.env.FAKE_ONESHOT_MODE = 'model-not-recognized'
   const pool = new AccountPoolManager(join(dir, 'pool-mnr'))
-  pool.createAccountSlot('Second')
+  pool.getPrimaryAccount()
   const firstAcc = pool.getAccounts()[0]!
   const mnrRes = await runAgyOnce(
     { ...baseOneShotDeps, pool: () => pool },

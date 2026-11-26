@@ -7,7 +7,6 @@ import { join } from 'node:path'
 
 import { AccountPoolManager } from '../src/host/pool.ts'
 import { QuotaService } from '../src/host/quota.ts'
-import { handlePool } from '../src/host/commands/pool.ts'
 import { R } from '../src/client/react.ts'
 import { publishStatusSnapshot } from '../src/client/status.ts'
 import { AccountsPanel } from '../src/client/sections/AccountsPanel.ts'
@@ -56,7 +55,7 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
 
   const tree = JSON.stringify(AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [benchedAcc], primaryAccountId: 'acc_other' } as never,
+    pool: { accounts: [benchedAcc], primaryAccountId: 'acc_other' } as never,
     accounts: [benchedAcc] as never,
     loadingAction: null,
     proxyInputs: {},
@@ -96,7 +95,7 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
   }
   const fullTree = JSON.stringify(AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [fullyCoolingAcc], primaryAccountId: 'acc_other' } as never,
+    pool: { accounts: [fullyCoolingAcc], primaryAccountId: 'acc_other' } as never,
     accounts: [fullyCoolingAcc] as never,
     loadingAction: null,
     proxyInputs: {},
@@ -134,7 +133,7 @@ test('per-family cooling isolates card dot color, renders unified cooldown actio
   }
   const clearedTree = JSON.stringify(AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [clearedAcc], primaryAccountId: 'acc_other' } as never,
+    pool: { accounts: [clearedAcc], primaryAccountId: 'acc_other' } as never,
     accounts: [clearedAcc] as never,
     loadingAction: null,
     proxyInputs: {},
@@ -166,9 +165,7 @@ test('SessionStatus turns amber when google/all accounts are cooling, and stays 
     const now = Date.now()
     publishStatusSnapshot({
       pool: {
-        mode: 'sequential',
         primaryAccountId: 'acc_1',
-        activeAccountId: 'acc_1',
         accounts: [{
           id: 'acc_1',
           alias: 'god',
@@ -191,10 +188,7 @@ test('SessionStatus turns amber when google/all accounts are cooling, and stays 
 
     publishStatusSnapshot({
       pool: {
-        mode: 'sequential',
         primaryAccountId: 'acc_1',
-        activeAccountId: 'acc_1',
-        resolvedActiveAccountIds: { google: 'acc_1' },
         accounts: [{
           id: 'acc_1',
           alias: 'god',
@@ -226,48 +220,6 @@ test('SessionStatus turns amber when google/all accounts are cooling, and stays 
   }
 })
 
-test('setActiveAccount rejects cooldown/quota-benched accounts consistently with getActiveAccountId', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-status-active-'))
-  try {
-    const pool = new AccountPoolManager(dir)
-    const first = pool.getAccounts()[0]!
-    const second = pool.createAccountSlot('Second')
-    const now = Date.now()
-
-    pool.updateAccountQuotas(first.id, {
-      google: { remainingFraction: 1, resetTime: new Date(now + 3_600_000).toISOString(), updatedAt: now },
-    })
-    pool.updateAccountQuotas(second.id, {
-      google: { remainingFraction: 0, resetTime: new Date(now + 10 * 60_000).toISOString(), updatedAt: now },
-    })
-
-    assert.equal(pool.setActiveAccount(second.id, 'google'), false, 'cannot pin quota-benched account')
-    assert.equal(pool.getActiveAccountId('google'), first.id, 'active pointer stays on eligible account')
-
-    // Clearing the quota gate allows pinning cleanly.
-    pool.clearCooldown(second.id, 'google', true)
-    assert.equal(pool.setActiveAccount(second.id, 'google'), true)
-    assert.equal(pool.getActiveAccountId('google'), second.id)
-
-    // Local 429 cooldown also blocks setActiveAccount until cleared.
-    pool.recordFailure(first.id, 'google', '429 Rate Limit', new Date(now + 60_000).toISOString())
-    assert.equal(pool.setActiveAccount(first.id, 'google'), false, 'cannot pin cooling account')
-    assert.equal(pool.getActiveAccountId('google'), second.id)
-
-    // /agy pool command reflects quota-limited instead of Ready.
-    pool.updateAccountQuotas(second.id, {
-      google: { remainingFraction: 0, resetTime: new Date(now + 10 * 60_000).toISOString(), updatedAt: now + 100 },
-    })
-    const poolRes = await handlePool(
-      { pool: () => pool, cfg: () => ({}) as never } as never,
-      { sub: 'pool', arg: '', raw: '/agy pool' } as never,
-    )
-    assert.ok((poolRes.text ?? '').includes('Gemini cooling'), `/agy pool should flag cooling family: ${poolRes.text ?? ''}`)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
 test('renderQuotaUnavailableNote uses the oldest frozen family timestamp instead of a newer partial row', () => {
   const t = ((k: string, vars?: Record<string, string | number>) =>
     vars?.time ? `${k}:${vars.time}` : k) as never
@@ -293,12 +245,14 @@ test('renderQuotaUnavailableNote uses the oldest frozen family timestamp instead
 
 test('VALIDATION_REQUIRED summary refusal marks authRequired consistently and heals on verification', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'agy-status-val-'))
+  const prevHome = process.env.HOME
+  const prevProfile = process.env.USERPROFILE
+  process.env.HOME = dir
+  process.env.USERPROFILE = dir
   try {
-    const pool = new AccountPoolManager(dir)
-    pool.setAccountEnabled('acc_primary', false)
-    const acc = pool.createAccountSlot('verify-me')
-    pool.clearAuthRequired(acc.id, true)
-    const tokenDir = join(acc.dir, '.gemini', 'antigravity-cli')
+    const pool = new AccountPoolManager(join(dir, 'pool'))
+    const acc = pool.getPrimaryAccount()
+    const tokenDir = join(dir, '.gemini', 'antigravity-cli')
     mkdirSync(tokenDir, { recursive: true })
     writeFileSync(
       join(tokenDir, 'antigravity-oauth-token'),
@@ -350,6 +304,10 @@ test('VALIDATION_REQUIRED summary refusal marks authRequired consistently and he
     assert.equal(healed.quotaUnavailable, undefined)
     assert.equal(pool.isAccountEligible(healed, 'google'), true)
   } finally {
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevProfile
     rmSync(dir, { recursive: true, force: true })
   }
 })

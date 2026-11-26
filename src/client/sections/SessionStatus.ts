@@ -98,7 +98,9 @@ export function resolveBadgeReadout(input: {
     stale: false,
   }
   if (sessionScoped) return empty
-  const rawId = pool?.activeAccountId ?? pool?.lastActiveAccountId ?? pool?.activeAccountIds?.google ?? pool?.primaryAccountId
+  // Single-account mode: the primary credential (or the only stored row) is
+  // the account the scheduler would use for the family.
+  const rawId = pool?.primaryAccountId ?? pool?.accounts[0]?.id
   const account = rawId === undefined ? undefined : accounts.find((a) => a.id === rawId)
   if (account === undefined) return empty
   const gFrac = account.quotas?.google?.remainingFraction

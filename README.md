@@ -1,7 +1,7 @@
 <h1 align="center">🛰️ dsh-agy-link</h1>
 
 <p align="center">
-  <b>DeepSeek Harness × Google Antigravity</b> — 多账号池化与官方 agy CLI / ACP 双通道桥接
+  <b>DeepSeek Harness × Google Antigravity</b> — 单账号直连与官方 agy CLI / ACP 双通道桥接
 </p>
 
 <p align="center">
@@ -48,19 +48,18 @@
 >    ```bash
 >    export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890
 >    ```
-> 3. 多账号可各自绑定代理：卡片「🌐 代理」按钮。
+> 3. 代理：卡片「🌐 代理」按钮。
 
 ---
 
 ## 核心能力
 
-- 👥 **多账号池化**：每账号独立 HOME 沙箱、`0600` 原子凭证（`.bak` 自愈）。Windows 以引用计数租约接管全局凭据槽，同号并发、仅跨号切换时短暂串行。
+- 👤 **单账号直连**：直接使用系统 `agy` 登录态，`0600` 原子凭证写入（`.bak` 自愈）。Windows 以引用计数租约接管全局凭据槽，同号并发安全。
 - ⚡ **按模型族独立切换与冷却**（Gemini / Argon / Claude / GPT-OSS）：一族限流不影响其余。
-- 🔄 **顺序 / 轮询调度**：429 或额度耗尽时自动接力到最早重置的可用账号，对话不中断。
 - 📊 **配额监控**：`agy -p /usage` 采集 5h 滚动、7d 周额度与 Argon 独立周池。
 - 🧠 **鉴权抖动区分与风控熔断**：日志证据区分网络抖动（按 `NETWORK` 重试）与真实登出；`TOS_VIOLATION` 立即隔离该账号并停止自动故障转移。
 - 🔑 **浏览器免粘贴 OAuth 与 Token 导入**。
-- 🌐 **独立账号代理**：per-account 优先，回退全局或系统探测。
+- 🌐 **代理支持**：优先使用配置的代理，回退全局或系统探测。
 
 ---
 
@@ -69,7 +68,7 @@
 | 能力 | 说明 |
 | --- | --- |
 | 🎨 4 标签控制台 | 账号与配额 / 模型与编排 / 功能与界面 / 运行；侧边栏面板入口，应用式整页（图标+计数标签条、卡片重排、窄屏堆叠） |
-| 📋 模型目录与编排器 | 同步 agy 模型目录，允许清单（`selectedModels`）、并集路由（`poolWideCatalog`）、Planner / Executor 独立配置 |
+| 📋 模型目录与编排器 | 同步 agy 模型目录，允许清单（`selectedModels`）、Planner / Executor 独立配置 |
 | 🛡️ 权限与桥接 | `skip` / `auto` / `accept-edits` / `plan`（`/aplan` 只读）与 `--sandbox`；`mcpBridge` 按会话步骤桥接 DSH 工具 |
 | ⚡ 双传输 | 默认持久 `agy acp` 会话池，流前异常回退 CLI；后台配额刷新避让活跃回合 |
 | 🃏 工具卡片与 Generative UI | 镜像 Terminal / Diff / Read / Search / MCP / 子代理等卡片；`<agent-embed>` CSP 沙箱微件 |
@@ -99,9 +98,9 @@ dsh plugin --profile web add dsh-agy-link
 
 # 2. 启动 DSH Web GUI，输入框执行 /agy status 检查状态
 
-# 3. 添加账号：
-#    A) 顶部 "AGY (n)" 徽标 → "➕ 添加 Google 账号"，浏览器一键登录 / 导入 Token
-#    B) /agy auth 登录主账号；/agy pool 查 ID；/agy auth <id|别名|邮箱> 登录备用账号
+# 3. 登录账号：
+#    A) 顶部 "AGY" 徽标 → "🔑 重新登录"，浏览器一键登录 / 导入 Token
+#    B) /agy auth 启动登录；/agy auth-code <code> 手动完成
 
 # 4. /model 选择 Antigravity 模型开始对话
 ```
@@ -120,8 +119,8 @@ dsh plugin --profile web add dsh-agy-link
 
 | 分组 | 命令 |
 | --- | --- |
-| 状态与号池 | `/agy status` · `pool` · `add-account [alias]` · `use <id> [family]` · `enable-account` / `disable-account` / `remove-account` · `refresh-quota` · `clear-cooldown` · `models` |
-| 认证 | `/agy auth [id\|alias\|email]` · `auth-status` · `auth-code <code>` · `import <token_or_json> [alias]` |
+| 状态与配额 | `/agy status` · `refresh-quota` · `clear-cooldown [family]` · `models` |
+| 认证 | `/agy auth` · `auth-status` · `auth-code <code>` · `import <token_or_json> [alias]` |
 | 运行与安全 | `/agy mode <skip\|auto\|plan\|accept-edits>` · `sandbox [on\|off]` · `transport [cli\|acp\|status]` · `agent [name\|off]` · `settings [show\|<json\|path>\|clear]` · `effort <…>` · `workspace [path]` |
 | 目标与会话 | `/agy goal [...]` · `session [info\|clear]` |
 | 工作流 | `/agy fork [...]` · `grill [主题]` · `learn [--apply] [焦点]` · `compact [焦点]` · `doctor` |

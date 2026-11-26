@@ -3,13 +3,13 @@
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import { HELP, ok, type CommandContext, type CommandDeps, type CommandHandler } from './shared.ts'
 import { handleStatus } from './status.ts'
-import { handlePool } from './pool.ts'
 import { handleAuth } from './auth.ts'
 import { handleConfig } from './config.ts'
 import { handleSession, handleGoal, handleClear } from './session.ts'
 import { handleModels } from './models.ts'
 import { handleDoctor } from './doctor.ts'
 import { handleCacheStats } from './cache.ts'
+import { handleAccountOps } from './account.ts'
 import { handleSlashBridge } from './slash-bridge.ts'
 
 interface CommandEntry {
@@ -19,15 +19,6 @@ interface CommandEntry {
 
 export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { subs: ['status'], handle: handleStatus },
-  {
-    subs: [
-      'pool', 'accounts',
-      'use', 'set-active',
-      'enable-account', 'disable-account', 'add-account',
-      'refresh-quota', 'clear-cooldown', 'remove-account', 'plan',
-    ],
-    handle: handlePool,
-  },
   { subs: ['auth', 'auth-status', 'auth-code', 'import', 'import-token'], handle: handleAuth },
   { subs: ['models'], handle: handleModels },
   {
@@ -45,6 +36,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { subs: ['fork', 'grill', 'grill-me', 'learn', 'compact'], handle: handleSlashBridge },
   { subs: ['doctor'], handle: handleDoctor },
   { subs: ['cache-stats', 'cache'], handle: handleCacheStats },
+  { subs: ['refresh-quota', 'clear-cooldown'], handle: handleAccountOps },
 ]
 
 /** Route one parsed invocation to its group handler; `help`/unknown returns HELP. */

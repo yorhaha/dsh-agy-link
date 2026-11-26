@@ -48,13 +48,9 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
   // Boot-time pool/store hygiene: stale staging logs, keychains, credential slot.
   runBootHygiene(services)
 
-  // Everything expensive (staging/log sweeps, stale presence locks, orphaned MCP
-  // servers) is deferred to one idle pass: a pool of 8 accounts otherwise pays
-  // hundreds of file stats before the first frame, and leaves the previous run's
-  // MCP children behind.
+  // Everything expensive (log sweeps, orphaned MCP servers) is deferred to one
+  // idle pass so startup never pays for it before the first frame.
   const stopBootMaintenance = scheduleBootMaintenance({
-    accounts: () => services.pool.getAccounts(),
-    sweepStaging: () => services.pool.sweepStaleStaging(),
     sweepLogs: () => services.pool.sweepOldLogs(getConfig().logRetentionDays),
     log,
     reapOrphans: getConfig().reapOrphanMcp,
@@ -119,13 +115,12 @@ export function apply(ctx: Context, entryConfig: Record<string, unknown> = {}): 
     if (services.status.dormantReason !== null) return
 
     const poolData = services.pool.getPoolData()
-    const activeId = services.pool.getActiveAccountId('google') ?? poolData.lastActiveAccountId ?? poolData.primaryAccountId
+    const activeId = services.pool.getActiveAccountId('google') ?? poolData.primaryAccountId
     // ONE spawn for the account the picker actually shows.
     await catalog.refreshIfNeeded(activeId).catch(() => undefined)
     notifyPicker()
-    // Only the opt-in pool-wide catalog needs every account discovered; the
-    // per-account rows otherwise load lazily on first use, so we never pay
-    // N x (agy models + MCP boot storm) at startup again.
+    // Per-account rows load lazily on first use, so startup never pays an
+    // agy models + MCP boot storm again.
     if (getConfig().poolWideCatalog) {
       void catalog.warmAccounts(services.pool.getAccounts()).catch(() => undefined)
     }

@@ -10,7 +10,7 @@ import { AgyAdapter } from './adapter.ts'
 import { AuthHelper } from './auth.ts'
 import { ModelCatalog } from './models.ts'
 import { RunRegistry } from './recording.ts'
-import { resolveAgyBin, probeProcess, isolatedHomeEnv, parseVersion } from './runner.ts'
+import { resolveAgyBin, probeProcess, parseVersion } from './runner.ts'
 import { supportsSshIsolation } from '../runtime/agy/env.ts'
 import { SessionStore } from './sessions.ts'
 import { AccountPoolManager } from './pool.ts'
@@ -25,7 +25,7 @@ import { defaultMediaDir } from './media.ts'
 import { AcpSessionPool, runAcpAttempt } from '../features/acp/index.ts'
 import { createPoolQuotaHooks } from '../provider/quota-failover.ts'
 import { BackgroundWakeWatcher, type AgentLike } from '../features/background/watcher.ts'
-import { agyMcpConfigPath, mcpServerKey, registerBridgeMcpConfig, type BridgeRegistryState } from './mcp-bridge.ts'
+import { mcpServerKey, type BridgeRegistryState } from './mcp-bridge.ts'
 import { readAccountCredential } from './credential-backup.ts'
 import { acquireCredentialSlot, readPrimaryCredential, recoverPrimaryCredential, reinstallCredential } from './credential-slot.ts'
 import { buildCliQuotaDeps } from './quota-cli-deps.ts'
@@ -201,7 +201,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
         }
         candidateAccount =
           pickEnabled(pool.getActiveAccountId('google'))
-          ?? pickEnabled(poolData.lastActiveAccountId)
           ?? pickEnabled(poolData.primaryAccountId)
           ?? pool.getAccounts().find((a) => a.enabled && !a.authRequired)
         if (!candidateAccount && pool.getAccounts().length > 0) {
@@ -268,13 +267,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
   )
 
   pool.setCatalog(catalog)
-  pool.onAccountSwitch = (newActiveId: string) => {
-    if (process.platform === 'win32' && !supportsSshIsolation(version())) {
-      acpPool.evictOtherAccounts(newActiveId)
-    }
-    notifyPicker()
-    void catalog.forceRefreshAndNotify(newActiveId).catch(() => undefined)
-  }
 
   const bridgeSteps = new BridgeSteps()
   const bridgeState: BridgeRegistryState = { bridge: null, restores: [], log }
@@ -284,14 +276,6 @@ export function createHostServices(ctx: Context, entryConfig: Record<string, unk
       notifyPicker()
       const activeId = pool.getActiveAccountId('google')
       if (activeId) void catalog.forceRefreshAndNotify(activeId).catch(() => undefined)
-    },
-    onIsolatedAccountCommitted: (acc) => {
-      if (bridgeState.bridge !== null && acc.dir) {
-        const cfg = getConfig()
-        if (cfg.mcpConfigScope === 'global' || cfg.mcpConfigScope === 'both') {
-          registerBridgeMcpConfig(bridgeState, agyMcpConfigPath('', isolatedHomeEnv(acc.dir)))
-        }
-      }
     },
   })
   const runs = new RunRegistry()

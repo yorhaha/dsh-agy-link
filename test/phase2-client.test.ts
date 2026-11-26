@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { register as registerStatus } from '../src/transport/http/routes/status.ts'
-import { register as registerPool } from '../src/transport/http/routes/pool.ts'
+import { register as registerAccount } from '../src/transport/http/routes/account.ts'
 import type { Route } from '../src/transport/http/respond.ts'
 import { SubagentTracker } from '../src/features/subagent/tracker.ts'
 import { Semaphore, findSessionLogFile, readSessionImage, resolveSessionGoal, resolveSessionPlanMode } from '../src/host/service-helpers.ts'
@@ -66,7 +66,7 @@ test('GET /plugins/agy-link/status emits ETag and responds 304 Not Modified on m
     status: { version: '1.5.12', dormantReason: null },
     store: { all: () => ({}) },
     pool: {
-      getPoolData: () => ({ mode: 'sequential', accounts: [], primaryAccountId: 'acc_primary' }),
+      getPoolData: () => ({ accounts: [], primaryAccountId: 'acc_primary' }),
       getAccounts: () => [],
       getActiveAccountId: () => 'acc_primary',
       getAccount: () => undefined,
@@ -96,43 +96,53 @@ test('GET /plugins/agy-link/status emits ETag and responds 304 Not Modified on m
   assert.equal(res2.text, '')
 })
 
-test('POST /plugins/agy-link/pool/begin-add dispatches 1-click in-place reauth via accountId', async () => {
+test('POST /plugins/agy-link/pool/begin-add starts the primary re-login and complete/cancel reach the auth flow', async () => {
   const calls: string[] = []
   const routes = new Map<string, Route['handler']>()
-  registerPool((r) => routes.set(r.path, r.handler), {
-    getConfig: () => defaultConfig(),
+  const services = {
+    getConfig: () => ({ ...defaultConfig(), proxyUrl: 'http://cfg:7890' }),
     pool: {
-      getAccount: (id: string) =>
-        id === 'acc_primary' ? { id: 'acc_primary', systemHome: true, alias: 'Primary' }
-          : id === 'acc_2' ? { id: 'acc_2', systemHome: false, alias: 'Two', proxyUrl: 'http://127.0.0.1:7890' }
-            : undefined,
+      getPrimaryAccount: () => ({ id: 'acc_primary', alias: 'Primary', systemHome: true }),
+      getPoolData: () => ({ version: 1, primaryAccountId: 'acc_primary', accounts: [] }),
     },
     poolAuth: {
       beginPrimary: async (proxy?: string) => { calls.push(`primary:${proxy ?? ''}`); return { ok: true, phase: 'waiting' } },
-      beginAccount: async (id: string, proxy?: string) => { calls.push(`account:${id}:${proxy ?? ''}`); return { ok: true, phase: 'waiting' } },
-      begin: async () => { calls.push('new'); return { ok: true, phase: 'waiting' } },
+      submitCode: async (code: string) => {
+        calls.push(`submit:${code}`)
+        return { ok: true, phase: 'done', code: 'primary_activated' }
+      },
+      cancel: async () => { calls.push('cancel'); return { ok: true, phase: 'idle' } },
     },
-  } as never)
+  } as never
+  registerAccount((r) => routes.set(r.path, r.handler), services)
 
-  const handler = routes.get('/plugins/agy-link/pool/begin-add')!
+  // Begin: no accountId is needed — there is only the system-HOME primary.
+  const rBegin = fakeRes()
+  routes.get('/plugins/agy-link/pool/begin-add')!(fakeReq('POST', {}), rBegin)
+  await rBegin.done
+  assert.equal(rBegin.status, 200)
 
-  const rPrim = fakeRes()
-  handler(fakeReq('POST', { accountId: 'acc_primary' }), rPrim)
-  await rPrim.done
-  assert.equal(rPrim.status, 200)
-
-  const rSec = fakeRes()
-  handler(fakeReq('POST', { accountId: 'acc_2' }), rSec)
-  await rSec.done
-  assert.equal(rSec.status, 200)
-
+  // Complete without a pasted code is a 400 the console can render.
   const rMissing = fakeRes()
-  handler(fakeReq('POST', { accountId: 'acc_ghost' }), rMissing)
+  routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', {}), rMissing)
   await rMissing.done
-  assert.equal(rMissing.status, 404)
+  assert.equal(rMissing.status, 400)
+  assert.equal(rMissing.json().code, 'missing_code')
 
-  assert.ok(calls[0]?.startsWith('primary:'))
-  assert.equal(calls[1], 'account:acc_2:http://127.0.0.1:7890')
+  // Complete with a code drives the pooled auth flow.
+  const rDone = fakeRes()
+  routes.get('/plugins/agy-link/pool/complete-add')!(fakeReq('POST', { code: '4/valid-code' }), rDone)
+  await rDone.done
+  assert.equal(rDone.status, 200)
+  assert.equal(rDone.json().ok, true)
+
+  // Cancel abandons the flow.
+  const rCancel = fakeRes()
+  routes.get('/plugins/agy-link/pool/cancel-add')!(fakeReq('POST', {}), rCancel)
+  await rCancel.done
+  assert.equal(rCancel.status, 200)
+
+  assert.deepEqual(calls, ['primary:http://cfg:7890', 'submit:4/valid-code', 'cancel'])
 })
 
 test('UI primitives & AccountsPanel never pass unkeyed array literals as children, and render 1-click reauth + quota pacing', () => {
@@ -176,7 +186,7 @@ test('UI primitives & AccountsPanel never pass unkeyed array literals as childre
 
     const panelTree = JSON.stringify(AccountsPanel({
       t,
-      pool: { mode: 'sequential', accounts: [reauthAcc], primaryAccountId: 'acc_primary' } as never,
+      pool: { accounts: [reauthAcc], primaryAccountId: 'acc_primary' } as never,
       accounts: [reauthAcc] as never,
       loadingAction: null,
       proxyInputs: {},
@@ -225,7 +235,7 @@ test('UI primitives & AccountsPanel never pass unkeyed array literals as childre
     }
     JSON.stringify(AccountsPanel({
       t,
-      pool: { mode: 'sequential', accounts: [reauthAcc, lowAcc], primaryAccountId: 'acc_reauth', activeAccountId: 'acc_low', systemProxy: 'http://sys:8080' } as never,
+      pool: { accounts: [reauthAcc, lowAcc], primaryAccountId: 'acc_reauth', systemProxy: 'http://sys:8080' } as never,
       accounts: [reauthAcc, lowAcc] as never,
       loadingAction: 'refresh:acc_low',
       proxyInputs: { acc_low: 'http://p:1' },
@@ -269,9 +279,7 @@ test('SessionStatus SSR renders quota %, colors, dormant & modal states, and sta
     agyModalStore.setOpen(false)
     publishStatusSnapshot({
       pool: {
-        mode: 'sequential',
         primaryAccountId: 'acc_1',
-        activeAccountId: 'acc_1',
         accounts: [{
           id: 'acc_1', alias: '主账号', dir: '', enabled: true, createdAt: 1, cooldowns: {},
           quotas: { google: { remainingFraction: 0.72 } },
@@ -283,9 +291,7 @@ test('SessionStatus SSR renders quota %, colors, dormant & modal states, and sta
 
     publishStatusSnapshot({
       pool: {
-        mode: 'sequential',
         primaryAccountId: 'acc_1',
-        activeAccountId: 'acc_1',
         accounts: [{
           id: 'acc_1', alias: 'Low', dir: '', enabled: true, createdAt: 1, cooldowns: {},
           quotas: { google: { remainingFraction: 0.12 } },
@@ -297,9 +303,7 @@ test('SessionStatus SSR renders quota %, colors, dormant & modal states, and sta
     publishStatusSnapshot({
       dormantReason: 'no bin',
       pool: {
-        mode: 'sequential',
         primaryAccountId: 'acc_1',
-        activeAccountId: 'acc_1',
         accounts: [{
           id: 'acc_1', alias: 'Med', dir: '', enabled: true, createdAt: 1, authRequired: false,
           cooldowns: { google: { cooldownUntil: Date.now() + 60_000, reason: '429' } },
@@ -568,7 +572,7 @@ test('AccountsPanel shows collapsed cooling hint, host-synced spinners, and expl
 
   const treeNoExplicit = JSON.stringify(AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [accInheritedProxy], primaryAccountId: 'acc_inh', systemProxy: 'http://sys:8080' } as never,
+    pool: { accounts: [accInheritedProxy], primaryAccountId: 'acc_inh', systemProxy: 'http://sys:8080' } as never,
     accounts: [accInheritedProxy] as never,
     loadingAction: null,
     quotaRefreshing: ['acc_inh'],
@@ -592,7 +596,7 @@ test('AccountsPanel shows collapsed cooling hint, host-synced spinners, and expl
 
   const treeExplicit = JSON.stringify(AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [accExplicitProxy], primaryAccountId: 'acc_exp', systemProxy: 'http://sys:8080' } as never,
+    pool: { accounts: [accExplicitProxy], primaryAccountId: 'acc_exp', systemProxy: 'http://sys:8080' } as never,
     accounts: [accExplicitProxy] as never,
     loadingAction: null,
     quotaRefreshing: [],
@@ -645,7 +649,7 @@ test('AccountsPanel renames by clicking the label itself and always offers re-lo
   const edited: Array<string | null> = []
   const panel = AccountsPanel({
     t,
-    pool: { mode: 'sequential', accounts: [healthy], primaryAccountId: 'acc_primary' } as never,
+    pool: { accounts: [healthy], primaryAccountId: 'acc_primary' } as never,
     accounts: [healthy] as never,
     loadingAction: null,
     proxyInputs: {},

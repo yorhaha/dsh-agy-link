@@ -198,10 +198,14 @@ export function scheduleBootMaintenance(
  */
 export function describeStartupCost(
   registryFile: string,
-  _accounts: readonly ManagedAccount[],
+  accounts: readonly ManagedAccount[],
   _now = Date.now(),
 ): string[] {
   const lines: string[] = []
+  lines.push(
+    '- startup cost: '
+    + (accounts.length === 0 ? 'no signed-in account' : 'the primary account (system HOME), no isolated homes'),
+  )
   let servers: Array<[string, unknown]> = []
   try {
     const raw = readFileSync(registryFile, 'utf8')

@@ -1,10 +1,8 @@
-// Session account selection: sticky affinity, cross-family fallback, and the
-// "why is nothing available" diagnostic. Extracted from AgyAdapter.streamAttempt;
-// the adapter still owns the post-selection side effects
-// (markAccountActive / agyOnAccount).
+// Session account selection: the single primary account, a cross-family model
+// fallback, and the "why is nothing available" diagnostic.
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { Err, type PluginConfig } from '../common/types.ts'
-import { modelFamilyOf, sharedArgonPeerFamily, type ManagedAccount, type ModelFamily } from '../common/pool-types.ts'
+import { modelFamilyOf, type ManagedAccount, type ModelFamily } from '../common/pool-types.ts'
 import { resolveModelSlug } from '../domain/models/parse.ts'
 import { isModelQuotaClear } from '../domain/accounts/selection.ts'
 import type { AccountPoolManager } from '../host/pool.ts'
@@ -59,51 +57,29 @@ export interface AccountSelectionResult {
 }
 
 /**
- * Session affinity: reuse the account this session last ran for THIS family, if eligible and not superseded by a manual switch.
+ * The account serving a session for THIS family. With a single primary account
+ * there is no affinity to arbitrate: the answer is that account whenever it is
+ * eligible, and undefined otherwise.
  *
- * Exported because the header badge must describe the SAME account the
- * scheduler would pick. A second, badge-local copy of this rule is exactly how
- * the readout drifted from reality (reported 2026-11-23).
+ * Exported because the header badge must describe the same account the
+ * selection path would use.
  */
 export function stickyAccount(
   deps: AccountSelectionDeps,
   family: ModelFamily,
-  sessionKey: string,
+  _sessionKey: string,
   model?: string,
 ): ManagedAccount | undefined {
   const pool = deps.pool
-  if (pool === undefined || sessionKey === '') return undefined
-  const poolData = pool.getPoolData()
-  const familyPinAt = Math.max(poolData.manualPinAt ?? 0, poolData.manualPinAtByFamily?.[family] ?? 0)
-  const prefix = `${sessionKey}:`
-  let mostRecent: ManagedAccount | undefined
-  let latestUpdated = -1
-  for (const [k, b] of Object.entries(deps.store.all())) {
-    if (!k.startsWith(prefix)) continue
-    const boundAcc = pool.getAccount(k.slice(prefix.length))
-    if (boundAcc === undefined) {
-      deps.store.delete(k)
-      continue
-    }
-    const peerFam = sharedArgonPeerFamily(boundAcc, family)
-    if (b.model && b.model.trim() !== '') {
-      const bFam = modelFamilyOf(b.model)
-      if (bFam !== family && bFam !== peerFam) continue
-    }
-    // If the user explicitly switched/reordered accounts in the UI or CLI after
-    // this binding was written, honor the user's explicit choice immediately.
-    const effectivePinAt = Math.max(familyPinAt, peerFam ? (poolData.manualPinAtByFamily?.[peerFam] ?? 0) : 0)
-    if (effectivePinAt > 0 && b.updatedAt < effectivePinAt) continue
-    if (b.updatedAt > latestUpdated) {
-      mostRecent = boundAcc
-      latestUpdated = b.updatedAt
-    }
-  }
-  return mostRecent !== undefined
-    && (typeof pool.isAccountEligibleForModel === 'function'
-      ? pool.isAccountEligibleForModel(mostRecent, family, model)
-      : pool.isAccountEligible(mostRecent, family))
-    ? mostRecent
+  if (pool === undefined) return undefined
+  const primary = pool.getPrimaryAccount()
+  if (primary === undefined || primary.enabled !== true) return undefined
+  return (
+    typeof pool.isAccountEligibleForModel === 'function'
+      ? pool.isAccountEligibleForModel(primary, family, model)
+      : pool.isAccountEligible(primary, family)
+  )
+    ? primary
     : undefined
 }
 
@@ -210,7 +186,7 @@ async function healStaleModelSnapshot(
   return pool.selectAccount(family, model) ?? undefined
 }
 
-/** Build the "all accounts unavailable" error with the real reasons. */
+/** Build the "account unavailable" error with the real reason. */
 function unavailableError(pool: AccountPoolManager, family: ModelFamily, model?: string): LlmError {
   const allAccounts = pool.getAccounts()
   const accounts = allAccounts.filter((a) => a.enabled)
@@ -228,28 +204,28 @@ function unavailableError(pool: AccountPoolManager, family: ModelFamily, model?:
   const countdown = pool.getEarliestAvailableCountdown?.(family) ?? pool.getEarliestResetCountdown(family)
   let why: string
   if (accounts.length === 0 && allAccounts.length > 0) {
-    why = 'all accounts are disabled (enable an account in the console or run /agy enable-account)'
+    why = 'the Antigravity account is disabled'
   } else if (signedOut > 0 && signedOut === accounts.length) {
-    why = 'every account needs a re-login (run /agy auth)'
+    why = 'the Antigravity account needs a re-login (run /agy auth)'
   } else {
     const details: string[] = []
-    if (cooling > 0) details.push(`${cooling} in cooldown`)
-    if (quotaBlocked > 0) details.push(`${quotaBlocked} quota-exhausted`)
-    if (unsupported > 0) details.push(`${unsupported} lack ${family} access`)
-    if (modelUnsupported > 0) details.push(`${modelUnsupported} lack model "${model ?? ''}" in their catalog`)
-    if (signedOut > 0) details.push(`${signedOut} signed out`)
-    if (disabled > 0) details.push(`${disabled} disabled`)
-    why = `no account can serve ${family} right now${details.length > 0 ? ` (${details.join(', ')})` : ''}`
+    if (cooling > 0) details.push('in cooldown')
+    if (quotaBlocked > 0) details.push('quota-exhausted')
+    if (unsupported > 0) details.push(`no ${family} access`)
+    if (modelUnsupported > 0) details.push(`model "${model ?? ''}" missing from the catalog`)
+    if (signedOut > 0) details.push('signed out')
+    if (disabled > 0) details.push('disabled')
+    why = `the Antigravity account cannot serve ${family} right now${details.length > 0 ? ` (${details.join(', ')})` : ''}`
   }
   const waitStr = countdown !== null && countdown > 0 ? ` (earliest reset in ${Math.ceil(countdown / 1000)}s)` : ''
   const hint = modelUnsupported > 0 && unsupported === 0 && quotaBlocked === 0 && cooling === 0
-    ? `Requested model "${model ?? ''}" is not in any enabled account's catalog — refresh the model list (POST /plugins/agy-link/pool/refresh-quota) or pick a listed model. It is NOT a missing ${family} plan.`
+    ? `Requested model "${model ?? ''}" is not in the account's catalog — refresh the model list (POST /plugins/agy-link/refresh-quota) or pick a listed model. It is NOT a missing ${family} plan.`
     : unsupported > 0 && quotaBlocked === 0 && cooling === 0
-      ? `No enabled account has access to ${family} (requires a plan with ${family} enabled).`
+      ? `This account's plan has no ${family} access enabled.`
     : quotaBlocked > 0 && cooling === 0
-      ? 'Add an account, wait for the quota reset, or run /agy clear-cooldown to override the current quota snapshot.'
-      : 'Add an account, wait for reset, or run /agy clear-cooldown.'
-  return new LlmError(`All Antigravity accounts are unavailable: ${why}${waitStr}. ${hint}`, Err.AGY_ERROR)
+      ? 'Wait for the quota reset, or run /agy clear-cooldown to override the current quota snapshot.'
+      : 'Wait for the reset, or run /agy clear-cooldown.'
+  return new LlmError(`Antigravity is unavailable: ${why}${waitStr}. ${hint}`, Err.AGY_ERROR)
 }
 
 export async function selectSessionAccount(input: AccountSelectionInput): Promise<AccountSelectionResult> {
@@ -268,39 +244,16 @@ export async function selectSessionAccount(input: AccountSelectionInput): Promis
     acc !== undefined &&
     !avoid.has(acc.id) &&
     (quotaModel === '' || isModelQuotaClear(acc, family, quotaModel, Date.now()))
-  // Session affinity comes FIRST on every platform: the account this session
-  // already ran on is the one its credential slot most likely still holds, and
-  // hopping accounts mid-conversation swaps that slot and the quota the user is
-  // watching (spec: "Turn 2 MUST stay on Turn 1's account while it has quota").
-  // The Windows pack-share below therefore only decides for sessions that have
-  // no usable binding — a fresh session still follows the pool's candidate so
-  // concurrent runs keep sharing one credential slot.
-  if (pool !== undefined && !isAux && sessionKey !== '') {
-    const sticky = stickyAccount(deps, family, sessionKey, activeModel)
-    if (quotaClear(sticky)) account = sticky
-  }
-  if (account === undefined && pool !== undefined && !isAux && sessionKey !== '' && process.platform === 'win32' && cfg.parallelSameAccount) {
-    account = pool.selectAccount(family, activeModel) ?? undefined
-  }
-  if (account === undefined && pool !== undefined) {
-    if (quotaModel !== '' && typeof pool.findAccount === 'function') {
-      // Image-style call: pick WITHOUT moving the family's sticky pointer.
-      const picked = pool.findAccount(family, activeModel, quotaModel, input.avoidAccountIds) ?? undefined
-      if (quotaClear(picked)) account = picked
-    } else {
-      const picked = pool.selectAccount(family, activeModel) ?? undefined
-      if (quotaClear(picked)) account = picked
-    }
-  }
-  if (account !== undefined && pool !== undefined) {
-    // Record the account actually serving this family, without stamping
-    // manualPinAt. Family-scoped: an Argon pick must not rewrite the Gemini
-    // pointer, but it MUST make the Argon row truthful.
-    if (typeof pool.markAccountActive === 'function') {
-      pool.markAccountActive(account.id, family)
-    } else {
-      pool.setActiveAccount(account.id, family)
-    }
+  // There is exactly one account, so session affinity, the Windows pack-share
+  // rule and per-family pinning all collapse into a single eligibility check.
+  // Nothing is stamped back onto the pool: there is no active-account pointer
+  // to move any more.
+  if (pool !== undefined) {
+    const picked =
+      quotaModel !== ''
+        ? pool.findAccount(family, activeModel, quotaModel, input.avoidAccountIds) ?? undefined
+        : pool.selectAccount(family, activeModel, undefined, input.avoidAccountIds) ?? undefined
+    if (quotaClear(picked)) account = picked
   }
 
   if (account === undefined && pool !== undefined && pool.getAccounts().length > 0) {

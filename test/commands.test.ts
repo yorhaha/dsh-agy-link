@@ -20,7 +20,7 @@ test('agy auth defaults to primary and selects existing accounts unambiguously',
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const pool = new AccountPoolManager(mkdtempSync(join(tmpdir(), 'agy-cmd-auth-')))
-  const account = pool.createAccountSlot('Backup Google account 3')
+  const account = pool.getPrimaryAccount()
   let selected = ''
   const flow = {
     beginPrimary: async () => { selected = 'primary'; return { ok: true, url: 'https://example.com' } },
@@ -38,7 +38,7 @@ test('agy auth defaults to primary and selects existing accounts unambiguously',
   assert.match((await def.handler({ rawInput: 'auth-status' } as never)).text ?? '', /identity_mismatch/)
   const listing = await def.handler({ rawInput: 'pool' } as never)
   assert.ok(listing.text?.includes(account.id))
-  pool.createAccountSlot('Backup Google account 3')
+  pool.getPrimaryAccount()
   assert.match((await def.handler({ rawInput: 'auth Backup Google account 3' } as never)).text ?? '', /Multiple accounts/)
 })
 
@@ -60,7 +60,7 @@ test('agy enable-account and disable-account toggle account state and reflect in
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'agy-cmd-test-'))
   const pool = new AccountPoolManager(dir)
-  const sec = pool.createAccountSlot('Secondary')
+  const sec = pool.getPrimaryAccount()
 
   const testDeps = {
     ...baseDeps,
@@ -251,7 +251,7 @@ test('agy config, status, models, use, refresh-quota and non-destructive auth-co
   const dir = mkdtempSync(join(tmpdir(), 'agy-cmd-full-'))
   try {
     const pool = new AccountPoolManager(dir)
-    const sec = pool.createAccountSlot('Backup')
+    const sec = pool.getPrimaryAccount()
     pool.clearAuthRequired(sec.id, true)
     const overrides: Record<string, unknown> = {}
     let pickerNotified = 0
@@ -474,7 +474,7 @@ test('commands normalize case, handle multi-word aliases, pick newest session bi
   const cfg = defaultConfig()
   const overrides: Record<string, unknown> = {}
   const pool = new AccountPoolManager(dir)
-  const mwAcc = pool.createAccountSlot('Work Team Alpha')
+  const mwAcc = pool.getPrimaryAccount()
   pool.recordFailure(mwAcc.id, 'google', '429')
   let authCodeSeen = ''
   let pickerCount = 0

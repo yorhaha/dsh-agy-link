@@ -5,7 +5,7 @@
 // server: it drives registerRoutes() with a recording fake webServer and calls
 // handlers directly with fake services.
 //
-// Scope: the full 29-route table plus the error/edge branches each handler
+// Scope: the full 20-route table plus the error/edge branches each handler
 // actually implements today (method gating, strict-body parsing, parameter
 // validation, unknown ids, upstream failure mapping). Assertions describe the
 // CURRENT behaviour — no handler is changed by this file.
@@ -36,37 +36,24 @@ try {
 const EXPECTED_ROUTES: ReadonlyArray<readonly [kind: string, path: string]> = [
   ['exact', '/plugins/agy-link/status'],
   ['exact', '/plugins/agy-link/session-view'],
-  ['exact', '/plugins/agy-link/auth'],
-  ['exact', '/plugins/agy-link/auth-code'],
-  ['exact', '/plugins/agy-link/auth-cancel'],
-  ['exact', '/plugins/agy-link/mermaid.min.js'],
-  ['exact', '/plugins/agy-link/pool'],
   ['exact', '/plugins/agy-link/pool/begin-add'],
   ['exact', '/plugins/agy-link/pool/complete-add'],
   ['exact', '/plugins/agy-link/pool/cancel-add'],
-  ['exact', '/plugins/agy-link/pool/import'],
-  ['exact', '/plugins/agy-link/pool/add'],
-  ['exact', '/plugins/agy-link/pool/open-terminal'],
-  ['exact', '/plugins/agy-link/pool/remove'],
-  ['exact', '/plugins/agy-link/pool/enable'],
-  ['exact', '/plugins/agy-link/pool/proxy'],
-  ['exact', '/plugins/agy-link/pool/alias'],
-  ['exact', '/plugins/agy-link/pool/primary'],
-  ['exact', '/plugins/agy-link/pool/mode'],
   ['exact', '/plugins/agy-link/pool/refresh-quota'],
-  ['exact', '/plugins/agy-link/pool/clear-cooldown'],
-  ['exact', '/plugins/agy-link/pool/set-active'],
-  ['exact', '/plugins/agy-link/pool/reorder'],
-  ['exact', '/plugins/agy-link/config'],
+  ['exact', '/plugins/agy-link/auth'],
+  ['exact', '/plugins/agy-link/auth-code'],
+  ['exact', '/plugins/agy-link/auth-cancel'],
   ['exact', '/plugins/agy-link/qr'],
+  ['exact', '/plugins/agy-link/config'],
+  ['exact', '/plugins/agy-link/mermaid.min.js'],
   ['exact', '/plugins/agy-link/media'],
   ['exact', '/plugins/agy-link/open'],
+  ['prefix', '/plugins/agy-link/assets'],
   ['exact', '/plugins/agy-link/embed'],
-  ['exact', '/plugins/agy-link/lease'],
   ['exact', '/plugins/agy-link/lease/acquire'],
   ['exact', '/plugins/agy-link/lease/renew'],
   ['exact', '/plugins/agy-link/lease/release'],
-  ['prefix', '/plugins/agy-link/assets'],
+  ['exact', '/plugins/agy-link/lease'],
 ]
 
 /** Routes that reject every non-POST method with `405 {error:'POST only'}`. */
@@ -77,19 +64,7 @@ const POST_ONLY_ROUTES = [
   '/plugins/agy-link/pool/begin-add',
   '/plugins/agy-link/pool/complete-add',
   '/plugins/agy-link/pool/cancel-add',
-  '/plugins/agy-link/pool/import',
-  '/plugins/agy-link/pool/add',
-  '/plugins/agy-link/pool/open-terminal',
-  '/plugins/agy-link/pool/remove',
-  '/plugins/agy-link/pool/enable',
-  '/plugins/agy-link/pool/proxy',
-  '/plugins/agy-link/pool/alias',
-  '/plugins/agy-link/pool/primary',
-  '/plugins/agy-link/pool/mode',
   '/plugins/agy-link/pool/refresh-quota',
-  '/plugins/agy-link/pool/clear-cooldown',
-  '/plugins/agy-link/pool/set-active',
-  '/plugins/agy-link/pool/reorder',
   '/plugins/agy-link/config',
   '/plugins/agy-link/open',
 ] as const
@@ -115,7 +90,13 @@ function fakeWebServer(): FakeWebServer {
   }
 }
 
-const POOL_DATA = { accounts: [], mode: 'sequential', primaryAccountId: null }
+const POOL_DATA = {
+  version: 1,
+  defaultCooldownMs: 900_000,
+  maxCooldownMs: 3_600_000,
+  primaryAccountId: 'acc_primary',
+  accounts: [],
+}
 
 type Overrides = Partial<Record<string, unknown>>
 type ConfigOverrides = Record<string, unknown>
@@ -165,7 +146,7 @@ function fakeServices(overrides: Overrides = {}, config: ConfigOverrides = {}): 
       getPoolData: () => POOL_DATA,
       getAccounts: () => [],
       getAccount: () => undefined,
-      setAccountEnabled: () => false,
+      getPrimaryAccount: () => undefined,
     },
     quota: {},
     catalog: {
@@ -285,7 +266,7 @@ function spy<T>(ret: T): Spy<T> {
   return Object.assign(fn, { calls })
 }
 
-/** Full pool double: every method a pool route can touch, with recorded calls. */
+/** Single-account pool double: every method the surviving account routes touch. */
 function poolDouble(overrides: Record<string, unknown> = {}) {
   const calls: Array<[string, unknown[]]> = []
   const fn = (name: string, ret: unknown) => (...args: unknown[]): unknown => {
@@ -296,17 +277,7 @@ function poolDouble(overrides: Record<string, unknown> = {}) {
     getPoolData: fn('getPoolData', POOL_DATA),
     getAccounts: fn('getAccounts', []),
     getAccount: fn('getAccount', undefined),
-    createAccountSlot: fn('createAccountSlot', { id: 'acc-new', dir: undefined }),
-    markAuthRequired: fn('markAuthRequired', true),
-    deleteAccount: fn('deleteAccount', true),
-    setAccountEnabled: fn('setAccountEnabled', false),
-    setAccountProxy: fn('setAccountProxy', true),
-    setPrimaryAccount: fn('setPrimaryAccount', false),
-    setMode: fn('setMode', true),
-    setActiveAccount: fn('setActiveAccount', false),
-    reorderAccounts: fn('reorderAccounts', false),
-    getActiveAccountId: fn('getActiveAccountId', undefined),
-    clearCooldown: fn('clearCooldown', true),
+    getPrimaryAccount: fn('getPrimaryAccount', undefined),
     ...overrides,
   }
   return {
@@ -380,38 +351,41 @@ test('/status answers 200 with the client-visible shape', async () => {
   // Field names the client half depends on (frozen contract).
   for (const key of [
     'permissionMode', 'workspaceRoot', 'defaultModel', 'defaultEffort', 'askTool', 'auth', 'poolAuth',
-    'showHeaderBadge', 'poolWideCatalog',
+    'showHeaderBadge',
   ]) {
     assert.ok(key in body, 'status must keep field ' + key)
   }
   assert.equal(body.showHeaderBadge, true)
-  assert.equal(body.poolWideCatalog, false)
+  assert.equal('poolWideCatalog' in body, false, 'the pool-wide catalog switch is gone')
 })
 
 test('/session-view answers for the family of the model this session selected', async () => {
-  const ele = {
-    id: 'acc_ele',
-    alias: 'ele',
-    email: 'ele@example.com',
-    dir: '/tmp/ele',
+  const dao = {
+    id: 'acc_dao',
+    alias: 'dao',
+    email: 'dao@example.com',
+    dir: '',
+    systemHome: true,
     enabled: true,
     createdAt: 1,
     cooldowns: {},
-    quotas: { argon: { weeklyFraction: 0.58, weeklyResetTime: new Date(Date.now() + 86_400_000).toISOString(), updatedAt: Date.now() } },
+    quotas: {
+      google: { remainingFraction: 0.98, resetTime: new Date(Date.now() + 86_400_000).toISOString(), updatedAt: Date.now() },
+      argon: { weeklyFraction: 0.58, weeklyResetTime: new Date(Date.now() + 86_400_000).toISOString(), updatedAt: Date.now() },
+    },
   }
   const poolData = {
     version: 1,
-    mode: 'sequential',
     defaultCooldownMs: 900_000,
     maxCooldownMs: 3_600_000,
-    activeAccountIds: { argon: 'acc_ele' },
-    resolvedActiveAccountIds: { argon: 'acc_ele' },
-    accounts: [ele],
+    primaryAccountId: 'acc_dao',
+    accounts: [dao],
   }
   const pool = {
     getPoolData: () => poolData,
-    getAccounts: () => [ele],
-    getAccount: (id: string) => (id === 'acc_ele' ? ele : undefined),
+    getAccounts: () => [dao],
+    getAccount: (id: string) => (id === 'acc_dao' ? dao : undefined),
+    isAccountEligible: () => true,
   }
   // The session's own selection outranks the configured default model.
   const sessionsSvc = () => ({
@@ -427,19 +401,21 @@ test('/session-view answers for the family of the model this session selected', 
   assert.equal(captured.status(), 200)
   const body = captured.json() as Record<string, unknown>
   assert.equal(body.family, 'argon')
-  assert.equal(body.accountId, 'acc_ele')
-  assert.equal(body.alias, 'ele')
+  assert.equal(body.accountId, 'acc_dao')
+  assert.equal(body.alias, 'dao')
   assert.equal(body.percent, 58)
   assert.equal(body.window, 'weekly')
   assert.equal(body.model, 'gemini-4-argon-high')
 
-  // No session id: the configured default decides, and no account is invented
-  // for a family that has no pointer.
+  // No session id: the configured default decides, and the single primary
+  // account is still the account that serves the family.
   const fallback = await setup().call('/plugins/agy-link/session-view', fakeReq('GET'))
   const fallbackBody = fallback.json() as Record<string, unknown>
   assert.equal(fallbackBody.model, 'gemini-3-flash')
   assert.equal(fallbackBody.family, 'google')
-  assert.equal(fallbackBody.accountId, null)
+  assert.equal(fallbackBody.accountId, 'acc_dao')
+  assert.equal(fallbackBody.percent, 98)
+  assert.equal(fallbackBody.source, 'predicted')
 })
 
 test('/status forwards an explicit UI visibility opt-out (issue #105)', async () => {
@@ -449,39 +425,6 @@ test('/status forwards an explicit UI visibility opt-out (issue #105)', async ()
   assert.equal(captured.status(), 200)
   const body = captured.json() as Record<string, unknown>
   assert.equal(body.showHeaderBadge, false, 'an explicit false must reach the client unchanged')
-})
-
-test('issue #107: /status catalogModels follows the pool-wide switch', async () => {
-  const active = { id: 'acc_active', alias: 'Active', dir: '/tmp/active', enabled: true, createdAt: 0 }
-  const pool = {
-    getPoolData: () => POOL_DATA,
-    getAccounts: () => [active],
-    getAccount: (id: string) => (id === 'acc_active' ? active : undefined),
-    getActiveAccountId: () => 'acc_active',
-  }
-  const catalog = {
-    get: () => ({ source: 'discovered', models: [], lastError: null }),
-    getAllKnownModels: () => [],
-    getModelsForAccount: () => [{ id: 'model-active', name: 'Active only', efforts: [] }],
-    getUnion: () => [
-      { id: 'model-active', name: 'Active only', efforts: [] },
-      { id: 'model-other', name: 'Another account', efforts: [] },
-    ],
-  }
-
-  const narrow = await invoke(
-    setup({ pool, catalog }, { poolWideCatalog: false }).route('/plugins/agy-link/status'),
-    fakeReq('GET'),
-  )
-  const narrowIds = (narrow.json() as { catalogModels: Array<{ id: string }> }).catalogModels.map((m) => m.id)
-  assert.deepEqual(narrowIds, ['model-active'], 'default keeps single-account isolation')
-
-  const wide = await invoke(
-    setup({ pool, catalog }, { poolWideCatalog: true }).route('/plugins/agy-link/status'),
-    fakeReq('GET'),
-  )
-  const wideIds = (wide.json() as { catalogModels: Array<{ id: string }> }).catalogModels.map((m) => m.id)
-  assert.deepEqual(wideIds, ['model-active', 'model-other'], 'Settings chips must match the picker union')
 })
 
 test('/status reflects bin/dormant/last-run/pool proxy and announces no method gate', async () => {
@@ -528,9 +471,9 @@ test('every POST-only route rejects GET/PUT/DELETE with 405 before touching serv
       assert.deepEqual(captured.json(), { error: 'POST only' }, path + ' ' + method)
     }
   }
-  // POST-only + 14 GET/method-agnostic routes + 4 lease routes (their own
+  // POST-only + 7 GET/method-agnostic routes + 4 lease routes (their own
   // `{ok,code,error}` envelope; gated in test/lease-routes.test.ts).
-  assert.equal(POST_ONLY_ROUTES.length + 8 + 4, EXPECTED_ROUTES.length)
+  assert.equal(POST_ONLY_ROUTES.length + 7 + 4, EXPECTED_ROUTES.length)
 })
 
 test('GET-style routes do not gate on method (current contract, asserted verbatim)', async (t) => {
@@ -541,11 +484,11 @@ test('GET-style routes do not gate on method (current contract, asserted verbati
   const cases: Array<[string, string, number]> = [
     ['/plugins/agy-link/status', '/', 200],
     ['/plugins/agy-link/session-view', '/?session=s', 200],
-    ['/plugins/agy-link/pool', '/', 200],
     ['/plugins/agy-link/qr', '/', 404],
     ['/plugins/agy-link/mermaid.min.js', '/', 404],
     ['/plugins/agy-link/media', '/', 400],
     ['/plugins/agy-link/assets', '/plugins/agy-link/assets/none.js', 404],
+    ['/plugins/agy-link/embed', '/', 400],
   ]
   for (const [path, url, expected] of cases) {
     const captured = await invoke(s.route(path), fakeReq('POST', url))
@@ -675,61 +618,6 @@ test('/config does not type-check free-form values (current contract)', async ()
 // Pool
 // ---------------------------------------------------------------------------
 
-test('/pool returns pool data and /pool/enable maps failure to 400', async () => {
-  let notified = 0
-  const s = setup({
-    pool: {
-      getPoolData: () => POOL_DATA,
-      getAccounts: () => [],
-      getAccount: () => undefined,
-      setAccountEnabled: () => false,
-    },
-    notifyPicker: () => {
-      notified++
-    },
-  })
-  const list = await invoke(s.route('/plugins/agy-link/pool'), fakeReq('GET'))
-  assert.equal(list.status(), 200)
-  assert.deepEqual(list.json(), POOL_DATA)
-
-  const enable = await invoke(s.route('/plugins/agy-link/pool/enable'), fakeReq('POST', '/', { id: 'missing', enabled: false }))
-  assert.equal(enable.status(), 400)
-  assert.deepEqual(enable.json(), { ok: false, pool: POOL_DATA })
-  assert.equal(notified, 0, 'a failed enable must not announce a picker update')
-
-  const wrongMethod = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('GET'))
-  assert.equal(wrongMethod.status(), 405)
-  assert.deepEqual(wrongMethod.json(), { error: 'POST only' })
-})
-
-test('/pool/add quarantines the new slot and skips the terminal when autoOpenTerminal=false', async () => {
-  const pool = poolDouble()
-  const s = setup({ pool: pool.pool })
-  const captured = await invoke(s.route('/plugins/agy-link/pool/add'), fakeReq('POST', '/', { alias: 'work', autoOpenTerminal: false }))
-  assert.equal(captured.status(), 200)
-  const body = captured.json() as Record<string, unknown>
-  assert.equal(body.ok, true)
-  assert.deepEqual(body.account, { id: 'acc-new' })
-  assert.deepEqual(body.pool, POOL_DATA)
-  assert.deepEqual(pool.callsTo('createAccountSlot'), [['work']])
-  assert.deepEqual(pool.callsTo('markAuthRequired'), [['acc-new', 'not signed in yet — complete the terminal login']])
-})
-
-test('/pool/open-terminal rejects unknown or dirless accounts with 400', async () => {
-  const pool = poolDouble({
-    getAccount: (id: unknown) => (id === 'no-dir' ? { id: 'no-dir' } : undefined),
-  })
-  const s = setup({ pool: pool.pool })
-
-  const unknown = await invoke(s.route('/plugins/agy-link/pool/open-terminal'), fakeReq('POST', '/', { id: 'ghost' }))
-  assert.equal(unknown.status(), 400)
-  assert.deepEqual(unknown.json(), { error: 'account has no isolated directory' })
-
-  const noDir = await invoke(s.route('/plugins/agy-link/pool/open-terminal'), fakeReq('POST', '/', { id: 'no-dir' }))
-  assert.equal(noDir.status(), 400)
-  assert.deepEqual(noDir.json(), { error: 'account has no isolated directory' })
-})
-
 test('/pool/complete-add validates the code and maps pool success/failure', async () => {
   const beginState = { ok: false, phase: 'failed', code: 'BAD_CODE' }
   const pool = poolDouble()
@@ -813,127 +701,6 @@ test('/pool/begin-add falls back to the configured proxy and trims the body valu
   const fromConfig = await invoke(s.route('/plugins/agy-link/pool/begin-add'), fakeReq('POST', '/', {}))
   assert.equal(fromConfig.status(), 200)
   assert.deepEqual(begun[1], [undefined, 'http://cfg-proxy:9'])
-})
-
-test('/pool mutation routes forward ids/params and always answer 200', async () => {
-  const seen: Record<string, unknown[][]> = {}
-  const rec = (name: string, ret: (args: unknown[]) => unknown) => (...args: unknown[]): unknown => {
-    ;(seen[name] ??= []).push(args)
-    return ret(args)
-  }
-  const pool = poolDouble({
-    setAccountEnabled: rec('setAccountEnabled', (args) => args[0] === 'known'),
-    setActiveAccount: rec('setActiveAccount', (args) => args[0] === 'known'),
-    setPrimaryAccount: rec('setPrimaryAccount', () => true),
-    reorderAccounts: rec('reorderAccounts', () => true),
-    getActiveAccountId: rec('getActiveAccountId', () => 'known'),
-  })
-  let notified = 0
-  const catalogRefreshes: unknown[][] = []
-  const quotaRefreshes: unknown[][] = []
-  const s = setup({
-    pool: pool.pool,
-    notifyPicker: () => {
-      notified++
-    },
-    catalog: {
-      get: () => ({ source: 'fallback', models: [], lastError: null }),
-      getAllKnownModels: () => [],
-      forceRefreshAndNotify: async (...args: unknown[]) => {
-        catalogRefreshes.push(args)
-      },
-      forceRefresh: async () => undefined,
-    },
-    quota: {
-      refreshAccountQuota: async (...args: unknown[]) => {
-        quotaRefreshes.push(['account', ...args])
-      },
-      refreshAllQuotas: async (...args: unknown[]) => {
-        quotaRefreshes.push(['all', ...args])
-      },
-    },
-  })
-
-  const remove = await invoke(s.route('/plugins/agy-link/pool/remove'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(remove.status(), 200)
-  assert.deepEqual(remove.json(), { ok: true, pool: POOL_DATA })
-  assert.deepEqual(pool.callsTo('deleteAccount'), [['known']])
-
-  const enableOk = await invoke(s.route('/plugins/agy-link/pool/enable'), fakeReq('POST', '/', { id: 'known', enabled: true }))
-  assert.equal(enableOk.status(), 200)
-  assert.deepEqual(enableOk.json(), { ok: true, pool: POOL_DATA })
-  assert.deepEqual(seen.setAccountEnabled, [['known', true]])
-
-  // Missing `enabled` defaults to true (no 400).
-  const enableDefault = await invoke(s.route('/plugins/agy-link/pool/enable'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(enableDefault.status(), 200)
-  assert.deepEqual(seen.setAccountEnabled?.[1], ['known', true])
-
-  const proxy = await invoke(s.route('/plugins/agy-link/pool/proxy'), fakeReq('POST', '/', { id: 'known', proxyUrl: 'http://p:1' }))
-  assert.equal(proxy.status(), 200)
-  assert.deepEqual(pool.callsTo('setAccountProxy'), [['known', 'http://p:1']])
-
-  // Missing id is NOT validated on /proxy (current contract: 200).
-  const proxyMissing = await invoke(s.route('/plugins/agy-link/pool/proxy'), fakeReq('POST', '/', {}))
-  assert.equal(proxyMissing.status(), 200)
-  assert.deepEqual(pool.callsTo('setAccountProxy')[1], ['', undefined])
-
-  const primary = await invoke(s.route('/plugins/agy-link/pool/primary'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(primary.status(), 200)
-  assert.deepEqual(catalogRefreshes, [['known']])
-
-  const setActive = await invoke(s.route('/plugins/agy-link/pool/set-active'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(setActive.status(), 200)
-  assert.deepEqual(setActive.json(), { ok: true, pool: POOL_DATA })
-  assert.deepEqual(catalogRefreshes, [['known'], ['known']])
-  assert.deepEqual(seen.setActiveAccount, [['known', 'google']])
-
-  const setActiveArgon = await invoke(s.route('/plugins/agy-link/pool/set-active'), fakeReq('POST', '/', { id: 'known', family: 'argon' }))
-  assert.equal(setActiveArgon.status(), 200)
-  assert.deepEqual(setActiveArgon.json(), { ok: true, pool: POOL_DATA })
-  assert.deepEqual(seen.setActiveAccount, [['known', 'google'], ['known', 'argon']])
-
-  const setActiveInvalidFamily = await invoke(s.route('/plugins/agy-link/pool/set-active'), fakeReq('POST', '/', { id: 'known', family: 'bogus' }))
-  assert.equal(setActiveInvalidFamily.status(), 400)
-  assert.deepEqual(setActiveInvalidFamily.json(), { ok: false, error: 'invalid family', pool: POOL_DATA })
-
-  const setActiveMissing = await invoke(s.route('/plugins/agy-link/pool/set-active'), fakeReq('POST', '/', {}))
-  assert.equal(setActiveMissing.status(), 400)
-  assert.deepEqual(setActiveMissing.json(), { ok: false, pool: POOL_DATA })
-
-  const mode = await invoke(s.route('/plugins/agy-link/pool/mode'), fakeReq('POST', '/', { mode: 'round-robin' }))
-  assert.equal(mode.status(), 200)
-  assert.deepEqual(pool.callsTo('setMode'), [['round-robin']])
-  // Anything else collapses to sequential.
-  const modeBad = await invoke(s.route('/plugins/agy-link/pool/mode'), fakeReq('POST', '/', { mode: 'nonsense' }))
-  assert.equal(modeBad.status(), 200)
-  assert.deepEqual(pool.callsTo('setMode')[1], ['sequential'])
-
-  const reorder = await invoke(s.route('/plugins/agy-link/pool/reorder'), fakeReq('POST', '/', { ids: ['known', 42, 'b'] }))
-  assert.equal(reorder.status(), 200)
-  assert.deepEqual(reorder.json(), { ok: true, pool: POOL_DATA })
-  assert.deepEqual(seen.reorderAccounts, [[['known', 'b']]])
-  assert.deepEqual(catalogRefreshes.at(-1), ['known'])
-
-  const clear = await invoke(s.route('/plugins/agy-link/pool/clear-cooldown'), fakeReq('POST', '/', { id: 'known', family: 'gemini' }))
-  assert.equal(clear.status(), 200)
-  assert.deepEqual(pool.callsTo('clearCooldown'), [['known', 'gemini', true]])
-
-  // No id/family is still accepted (current contract: no validation).
-  const clearEmpty = await invoke(s.route('/plugins/agy-link/pool/clear-cooldown'), fakeReq('POST', '/', {}))
-  assert.equal(clearEmpty.status(), 200)
-  assert.deepEqual(pool.callsTo('clearCooldown')[1], [undefined, undefined, true])
-
-  const refreshAll = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', {}))
-  assert.equal(refreshAll.status(), 200)
-  assert.deepEqual(quotaRefreshes, [['all', true]])
-
-  const refreshOne = await invoke(s.route('/plugins/agy-link/pool/refresh-quota'), fakeReq('POST', '/', { id: 'known' }))
-  assert.equal(refreshOne.status(), 200)
-  // getAccount default is undefined, so no per-account refresh fires.
-  assert.deepEqual(quotaRefreshes, [['all', true]])
-
-  assert.ok(notified >= 3, 'remove/enable/primary/set-active/reorder announce the picker')
 })
 
 test('/pool/refresh-quota refreshes one known account and tolerates unknown ids', async () => {
@@ -1059,15 +826,6 @@ test('/pool/refresh-quota decouples slow catalog.warmAccounts from quotaRefreshI
   assert.equal(warmCalls, 1, 'warmAccounts still deduplicates its own background run via catalogWarmInFlight')
   releaseWarm!()
   await new Promise((resolve) => setImmediate(resolve))
-})
-
-test('/pool/open-terminal still rejects an existing account without a dir', async () => {
-  // openAccountTerminal() would spawn a real terminal, so this contract test
-  // only exercises the guard: an existing account with no dir is rejected.
-  const pool = poolDouble({ getAccount: () => ({ id: 'no-dir' }) })
-  const s = setup({ pool: pool.pool })
-  const captured = await invoke(s.route('/plugins/agy-link/pool/open-terminal'), fakeReq('POST', '/', { id: 'no-dir' }))
-  assert.equal(captured.status(), 400)
 })
 
 // ---------------------------------------------------------------------------
@@ -1310,25 +1068,6 @@ test('/assets 404s when the asset dir cannot be resolved', async () => {
   const captured = await invoke(s.route('/plugins/agy-link/assets'), fakeReq('GET', '/plugins/agy-link/assets/a.js'))
   assert.equal(captured.status(), 404)
   assert.equal(captured.text(), 'asset not found')
-})
-
-test('/pool/add publishes the bridge MCP config into the account home when a bridge is active', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'agy-contract-add-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const bridge = { port: 4321, bridgeScript: '/tmp/bridge.mjs', url: 'http://127.0.0.1:4321', token: 'secret', close: async () => undefined }
-  const pool = poolDouble({ createAccountSlot: () => ({ id: 'acc-x', dir }) })
-  const s = setup({
-    pool: pool.pool,
-    bridgeState: { bridge, restores: [] as Array<() => void> },
-  }, { mcpConfigScope: 'global' })
-
-  const captured = await invoke(s.route('/plugins/agy-link/pool/add'), fakeReq('POST', '/', { autoOpenTerminal: false }))
-  assert.equal(captured.status(), 200)
-  const registered = s.services.bridgeState as unknown as { restores: Array<() => void> }
-  assert.equal(registered.restores.length, 1, 'a restore hook is recorded for the new account home')
-  const configFile = join(dir, '.gemini', 'config', 'mcp_config.json')
-  assert.ok(existsSync(configFile), 'mcp config written under the account home')
-  assert.match(readFileSync(configFile, 'utf8'), /mcpServers/)
 })
 
 test('/mermaid.min.js maps an unreadable file to 500', async (t) => {

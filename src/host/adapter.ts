@@ -355,9 +355,8 @@ export class AgyAdapter extends LlmAdapter {
     const account = selection.account
     let family = selection.family
     let activeModel = selection.activeModel
-    // The account is final here: record it as *the* in-use account for Google
-    // (or bootstrap when none is set) without hijacking it on Argon/Claude/GPT turns.
-    if (account && !isAux) this.deps.pool?.markAccountActive(account.id, family)
+    // The account is final here. With a single account there is no in-use
+    // pointer to record.
     // Image callers need the account's HOME to find agy's artifact directory
     // (`<home>/.gemini/antigravity-cli/brain/<conversation>/`). The hook is
     // advisory: a throwing listener must never break a run.

@@ -32,15 +32,8 @@ function withPool(fn: (pool: AccountPoolManager, dir: string) => void | Promise<
 }
 
 function isolate(pool: AccountPoolManager, label: string): ManagedAccount {
-  pool.setAccountEnabled('acc_primary', false)
-  const acc = pool.createAccountSlot(label)
-  const tokenDir = join(acc.dir, '.gemini', 'antigravity-cli')
-  mkdirSync(tokenDir, { recursive: true })
-  writeFileSync(
-    join(tokenDir, 'antigravity-oauth-token'),
-    JSON.stringify({ token: { access_token: 'tok', refresh_token: 'ref', expiry: Date.now() + 3_600_000 }, auth_method: 'consumer' }),
-    'utf8',
-  )
+  const acc = pool.getPrimaryAccount()
+  pool.setAccountAlias(acc.id, label)
   return pool.getAccount(acc.id)!
 }
 
@@ -123,33 +116,38 @@ class RecordingQuotaService extends QuotaService {
 }
 
 test('reverify sweep: only flags past their window are retried, survivors back off', async () => {
+  // A flag past its fast window is re-probed once and then backs off, so a dead
+  // login is not re-probed every two minutes forever.
   await withPool(async (pool) => {
     const stale = isolate(pool, 'stale')
-    const fresh = isolate(pool, 'fresh')
     pool.markAuthRequired(stale.id, 'agy is not signed in')
-    pool.markAuthRequired(fresh.id, 'agy is not signed in')
-    const now = Date.now()
-    pool.getAccount(stale.id)!.authMarkedAt = now - AUTH_FAST_REVERIFY_MS - 5_000
-    pool.getAccount(fresh.id)!.authMarkedAt = now
-
+    pool.getAccount(stale.id)!.authMarkedAt = Date.now() - AUTH_FAST_REVERIFY_MS - 5_000
     const svc = new RecordingQuotaService(pool)
     await svc.reverifyFlaggedAccounts()
-    assert.deepEqual(svc.calls, [stale.id], 'the fresh flag is not re-probed yet')
-
-    // The stub never disproved anything, so the window must grow — a dead login
-    // would otherwise be re-probed every two minutes forever.
+    assert.deepEqual(svc.calls, [stale.id])
     assert.equal(pool.getAccount(stale.id)!.authReverifyAttempts, 1)
-    assert.equal(pool.getAccount(fresh.id)!.authReverifyAttempts, undefined, 'an untouched flag keeps its fast window')
+  })
 
-    // Proven by a newer quota row instead: the sweep heals it without any request.
+  // A fresh flag is not re-probed yet.
+  await withPool(async (pool) => {
+    const fresh = isolate(pool, 'fresh')
+    pool.markAuthRequired(fresh.id, 'agy is not signed in')
+    pool.getAccount(fresh.id)!.authMarkedAt = Date.now()
+    const svc = new RecordingQuotaService(pool)
+    await svc.reverifyFlaggedAccounts()
+    assert.deepEqual(svc.calls, [], 'the fresh flag is not re-probed yet')
+    assert.equal(pool.getAccount(fresh.id)!.authReverifyAttempts, undefined, 'an untouched flag keeps its fast window')
+  })
+
+  // Proven by a newer quota row instead: the sweep heals it without any request.
+  await withPool(async (pool) => {
     const healed = isolate(pool, 'healed')
     pool.markAuthRequired(healed.id, 'agy is not signed in')
-    const markedAt = pool.getAccount(healed.id)!.authMarkedAt!
-    pool.getAccount(healed.id)!.authMarkedAt = markedAt - AUTH_FAST_REVERIFY_MS - 5_000
+    pool.getAccount(healed.id)!.authMarkedAt = Date.now() - AUTH_FAST_REVERIFY_MS - 5_000
     pool.updateAccountQuotas(healed.id, { google: { remainingFraction: 0.9, updatedAt: Date.now() } })
-    const second = new RecordingQuotaService(pool)
-    await second.reverifyFlaggedAccounts()
-    assert.deepEqual(second.calls, [], 'nothing left to verify over the network')
+    const svc = new RecordingQuotaService(pool)
+    await svc.reverifyFlaggedAccounts()
+    assert.deepEqual(svc.calls, [], 'nothing left to verify over the network')
     assert.equal(pool.getAccount(healed.id)!.authRequired, undefined)
   })
 })
