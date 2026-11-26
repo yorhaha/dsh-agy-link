@@ -187,12 +187,14 @@ function applyFailure(input: FinalizeInput, failure: AttemptFailure): void {
 }
 
 /**
- * Account rotation / quarantine policy for a failed attempt. Moved verbatim;
- * the ordering of these mutating pool calls is load-bearing.
+ * Quarantine / cooldown policy for a failed attempt. A single-account pool has
+ * no rotation pointer to advance, so this only records cooldowns, unsupported
+ * models and auth evidence. The ordering of the mutating pool calls is
+ * load-bearing.
  */
 function rotateOnFailure(input: FinalizeInput, failure: AttemptFailure): void {
   const { account, pool, family, outcome } = input
-  // Cooldown is a costly local penalty (account leaves rotation): only
+  // Cooldown is a costly local penalty (the account leaves rotation): only
   // HARD server-issued signatures may trigger it. Soft signals (model
   // overloaded) shape the message above but never cool the account.
   // Caller-aborted runs (stop button / steer preemption) are NOT server
@@ -206,66 +208,22 @@ function rotateOnFailure(input: FinalizeInput, failure: AttemptFailure): void {
     isModelScopedQuotaFailure(input.rawErrText) ||
     isModelScopedQuotaFailure(failure.message)
   if (account && !outcome.aborted && (looksLikeHardRateLimit(input.rawErrText) || Boolean(qf))) {
-    if (modelScoped) {
-      // One model's own quota ran out (e.g. an image model). Rotate this turn
-      // so the retry does not land on the same exhausted model, but never put
-      // the whole family into cooldown — other models still have quota.
-      pool?.advanceAccount(account.id, targetFamily, input.activeModel)
-    } else {
-      if (!qf?.cooledInLive) {
-        pool?.recordFailure(account.id, targetFamily, failure.message, serverResetTime)
-      }
-      if (qf?.crossFamily) {
-        pool?.advanceAccount(account.id, family, input.activeModel)
-      }
+    // A model-scoped bucket (e.g. an image model) must not cool the whole
+    // family: other models still have quota. quota-failover records the
+    // per-model failure; there is no second account to rotate to.
+    if (!modelScoped && !qf?.cooledInLive) {
+      pool?.recordFailure(account.id, targetFamily, failure.message, serverResetTime)
     }
   }
-  // Silent timeout: rotate to the next account for the automatic retry
-  // WITHOUT a cooldown. A 15-minute penalty for what may be a transient
-  // network blip would pull every account out of rotation and turn the
-  // accurate "cannot reach Google" hint into a misleading "all accounts
-  // in cooldown".
-  if (account && input.silentTimeout) {
-    pool?.advanceAccount(account.id, family)
-  }
-  // Region refusal is scoped to the account's own egress (skip the
-  // primary's direct connection, take a proxied account). Rotate so the
-  // automatic retry cannot land back on the refused account.
+  // Region refusal / model-not-recognized: remember the model so the next
+  // selection avoids it. There is no second account to rotate to.
   const unrecog =
     failure.code === Err.ELIGIBILITY || failure.code === Err.PROCESS_EXIT || failure.code === Err.AGY_ERROR
       ? parseModelNotRecognized(failure.message ?? '')
       : null
-  if (account && (failure.code === Err.ELIGIBILITY || unrecog !== null)) {
-    if (unrecog && typeof (pool as any)?.markModelUnsupported === 'function') {
-      (pool as any).markModelUnsupported(account.id, unrecog)
-    }
-    pool?.advanceAccount(account.id, family, input.activeModel)
+  if (account && unrecog !== null && typeof (pool as any)?.markModelUnsupported === 'function') {
+    (pool as any).markModelUnsupported(account.id, unrecog)
   }
-  // Account-scoped failures must not let the retry land back on the
-  // account that could not serve this turn. One rotation per failure:
-  //  - NETWORK / OVERLOADED: transport blip or capacity refusal. Nothing
-  //    was spent, so NO cooldown — a 15-minute penalty would only shrink
-  //    the pool.
-  //  - AUTH: the account is marked authRequired below, which already
-  //    excludes it from rotation; rotating here makes the intent explicit.
-  // Account-scoped failures that must advance the pointer so the retry tries another account:
-  //  - RATE_LIMIT: account quota spent (cooldown applied in recordFailure above)
-  //  - NETWORK / AUTH: transport blip or dead login for this specific account
-  // Server capacity overload (OVERLOADED / 503 / 529): Google-side pressure.
-  // We deliberately STAY on the current account with exponential backoff rather
-  // than rotating, protecting healthy accounts in the pool from cascaded exhaustion.
-  //
-  // A transport failure only belongs on that list when the accounts have
-  // SEPARATE egress. With one shared proxy the failure says nothing about
-  // the account: rotating repoints the session, drops the conversation
-  // binding and spends the rotation budget a quota hop needs.
-  const sharedEgressNetwork = failure.code === Err.NETWORK && input.sharesSingleEgress()
-  const rotateAway = !outcome.aborted && failure.code !== Err.RATE_LIMIT
-    && failure.code !== Err.OVERLOADED
-    && !sharedEgressNetwork
-    && (failure.code === Err.NETWORK
-      || failure.code === Err.AUTH)
-  if (rotateAway && account) pool?.advanceAccount(account.id, family)
   // Only authoritative auth states may flag an account: the old
   // /auth/i substring matched "oauth2.googleapis.com … i/o timeout"
   // transport noise and quarantined healthy accounts until a manual

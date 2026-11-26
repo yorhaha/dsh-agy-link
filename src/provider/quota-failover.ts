@@ -235,9 +235,6 @@ export function createPoolQuotaHooks(pool: AccountPoolManager) {
       if (accountId) {
         if (modelScoped) pool.recordModelFailure(accountId, bucketModel, errorText, resetTime)
         else pool.recordFailure(accountId, targetFam, errorText, resetTime)
-        if (targetFam !== mainFam) {
-          pool.advanceAccount(accountId, mainFam, model)
-        }
       }
       // Non-mutating: availability for the NEXT attempt, without stealing the
       // family's sticky account from a concurrent chat turn.

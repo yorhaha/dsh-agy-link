@@ -12,7 +12,6 @@ function poolDouble() {
   const pool = {
     markAuthRequired: (...a: unknown[]) => { calls.push(['markAuthRequired', ...a]) },
     recordFailure: (...a: unknown[]) => { calls.push(['recordFailure', ...a]) },
-    advanceAccount: (...a: unknown[]) => { calls.push(['advanceAccount', ...a]); return null },
     noteAuthFailure: (...a: unknown[]) => { calls.push(['noteAuthFailure', ...a]); return true },
     markModelUnsupported: (...a: unknown[]) => { calls.push(['markModelUnsupported', ...a]) },
   }
@@ -38,34 +37,34 @@ test('effort refusal is reported before quota, with no pool change', () => {
   assert.deepEqual(d.calls, [])
 })
 
-test('hard quota cools the error model family and advances when it differs', () => {
+test('hard quota cools the error model family and leaves the single account in place', () => {
   const d = poolDouble()
   const out = settleRunFailure(d.pool, account, 'google', 'gemini-3-flash', facts('RESOURCE_EXHAUSTED for model claude-sonnet-4-5 "model": "claude-sonnet-4-5"'))
   assert.equal(out?.kind, 'quota')
-  assert.deepEqual(d.calls.map((c) => c.slice(0, 3)), [['recordFailure', 'acc_b', 'anthropic'], ['advanceAccount', 'acc_b', 'google']])
-  // Without a parseable error model the requested family is used and nothing advances.
+  assert.deepEqual(d.calls.map((c) => c.slice(0, 3)), [['recordFailure', 'acc_b', 'anthropic']])
+  // Without a parseable error model the requested family is used.
   const d2 = poolDouble()
   settleRunFailure(d2.pool, account, 'google', undefined, facts('RESOURCE_EXHAUSTED'))
   assert.deepEqual(d2.names(), ['recordFailure'])
   assert.equal(d2.calls[0]![2], 'google')
 })
 
-test('model not recognized marks the model and advances; without a pool it falls through', () => {
+test('model not recognized marks the model; without a pool it falls through', () => {
   const d = poolDouble()
   const err = 'model "gemini-x" is not recognized as a known model'
   assert.deepEqual(settleRunFailure(d.pool, account, 'google', 'gemini-x', facts(err)), { kind: 'model_unsupported', error: err })
-  assert.deepEqual(d.names(), ['markModelUnsupported', 'advanceAccount'])
+  assert.deepEqual(d.names(), ['markModelUnsupported'])
   assert.equal(settleRunFailure(undefined, undefined, 'google', 'gemini-x', facts(err)), null)
 })
 
-test('eligibility advances; auth notes the failure and advances only when it should mark', () => {
+test('eligibility has no pool side effect; auth notes the failure only when it should mark', () => {
   const d = poolDouble()
   assert.deepEqual(settleRunFailure(d.pool, account, 'google', undefined, facts('eligibility check failed')), { kind: 'eligibility', error: 'eligibility check failed' })
-  assert.deepEqual(d.names(), ['advanceAccount'])
+  assert.deepEqual(d.names(), [])
 
   const a = poolDouble()
   assert.deepEqual(settleRunFailure(a.pool, account, 'google', undefined, facts('authentication required')), { kind: 'auth', error: NOT_SIGNED_IN_ERROR })
-  assert.deepEqual(a.names(), ['noteAuthFailure', 'advanceAccount'])
+  assert.deepEqual(a.names(), ['noteAuthFailure'])
 
   // A network-shaped auth message is not a reason to quarantine.
   const n = poolDouble()
@@ -93,5 +92,5 @@ test('settleSlotUnavailable: quarantine, except a primary-reassert failure on a 
   settleSlotUnavailable(d.pool, account, 'google', undefined, new SlotUnavailableError('y', 'primary'))
   const primary = { id: 'acc_primary', dir: '', systemHome: true } as unknown as ManagedAccount
   settleSlotUnavailable(d.pool, primary, 'google', undefined, new SlotUnavailableError('z', 'primary'))
-  assert.deepEqual(d.names(), ['markAuthRequired', 'advanceAccount', 'markAuthRequired'])
+  assert.deepEqual(d.names(), ['markAuthRequired', 'markAuthRequired'])
 })

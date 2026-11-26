@@ -10,7 +10,6 @@
     "canCutOnTool",
     "retainAcpSession",
     "onQuotaExhausted",
-    "advanceAccount",
     "avoidAccountIds"
   ],
   "counts": {
@@ -53,7 +52,6 @@
       "clearAuthRequired": 2
     },
     "src/host/pool.ts": {
-      "advanceAccount": 1,
       "avoidAccountIds": 4,
       "catalogForAccount": 3,
       "clearAuthRequired": 2,
@@ -62,7 +60,6 @@
       "setCatalog": 1
     },
     "src/host/run-settlement.ts": {
-      "advanceAccount": 6,
       "markAuthRequired": 2
     },
     "src/host/services.ts": {
@@ -80,14 +77,12 @@
       "onQuotaExhausted": 1
     },
     "src/provider/finalize.ts": {
-      "advanceAccount": 5,
       "markAuthRequired": 1
     },
     "src/provider/mapper/tool-projection.ts": {
       "canCutOnTool": 6
     },
     "src/provider/quota-failover.ts": {
-      "advanceAccount": 1,
       "onQuotaExhausted": 1
     },
     "src/provider/span.ts": {

@@ -34,7 +34,6 @@ const SYMBOLS = [
   'retainAcpSession',
   'onQuotaExhausted',
   // Residual multi-account scheduling (single-account teardown).
-  'advanceAccount',
   'avoidAccountIds',
 ]
 

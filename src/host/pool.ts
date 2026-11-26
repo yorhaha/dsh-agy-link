@@ -156,13 +156,6 @@ export class AccountPoolManager {
     return acc
   }
 
-  /**
-   * Settlement bookkeeping hook. A single account cannot rotate, so there is
-   * nowhere to advance to; cooldowns and quota gates are recorded by the
-   * `record*` methods instead.
-   */
-  advanceAccount(_accountId: string, _family: ModelFamily, _model?: string): void {}
-
   getAccount(id: string): ManagedAccount | undefined {
     return this.data.accounts.find((a) => a.id === id)
   }

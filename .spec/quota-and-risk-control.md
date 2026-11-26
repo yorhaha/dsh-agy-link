@@ -133,7 +133,7 @@ agy 1.5.12 起，普通 `Gemini Models` 组的 description 会**枚举成员**�
   - 凡账号拥有独立 `quotas.argon` 行，或 `quotas.google.description` 未显式列名 Argon，仍严格执行「独立账本、绝不借用」：`isQuotaBenched()` 只读自身行，`nextQuotaResetAt()` 返回 `NaN`，`orderByExpiry()` 把未知重置排在有已知重置之后。
   - 当且仅当 **`argonSharesGoogleGroup(acc)` 为真**（`acc.quotas?.argon === undefined && isArgonModel(acc.quotas?.google?.description)`，即 `agy 1.5.15+` 付费号把 Argon / Orchestrator (Argon) 折叠进 `Gemini Models` 共享组）时，`argon` 与 `google` 物理同桶：
     - 配额门控与排序：`effectiveFamilyQuota()`、`isQuotaBenched()`（含 `effectiveQuotaGateClearedAt()`）共享 `quotas.google` 读数；
-    - 冷却、失败与接管：`effectiveFamilyCooldown()`、`earliestResetCountdown()` / `earliestAvailableCountdown()`、`recordFailure()` / `recordSuccess()` / `clearCooldown(..., includeQuotaBench)` / `createLiveQuotaController()` / `advanceAccount()` 在 `google` ↔ `argon` 间双向联动，防止 Orchestrator (Argon) 在子代理/执行模型触发 `google` 429 后重试回同一冷却账号；
+    - 冷却、失败与接管：`effectiveFamilyCooldown()`、`earliestResetCountdown()` / `earliestAvailableCountdown()`、`recordFailure()` / `recordSuccess()` / `clearCooldown(..., includeQuotaBench)` / `createLiveQuotaController()` 在 `google` ↔ `argon` 间双向联动；单账号下没有可轮换的下一账号，失败只记录冷却/模型暂停，不移动账号指针；
     - CLI `/usage` 刷新（`refreshAccountQuotaPipeline`）与 REST summary 一致，使用 `shouldReleaseOrphanedCooldown()`（以 `hasDedicatedGroup(id, 'argon')` 为前提）守卫 `clearCooldown(id, 'argon')`，避免稳态共享组账号刷新配额时误删仍在生效的 429 冷却；
     - 展示收口：`accountKnownFamilies()` 与 `AccountsPanel` 在共享组账号上不额外渲染幽灵 `Argon` 卡片行或重复冷却标签，`QuotaPanel` 与 `/agy pool` 通过 `effectiveFamilyCooldown()` 读取有效冷却。
 - **argon 行唯一的替代数据源是 argon 自己的模型行**（2026-11-23 决策）：后端不发 `argon` 组但模型列表里有 `gemini-4-argon-*` 时，用这些模型行自己的周额度读数建 `argon` 行，绝不读 `google` 的聚合值。
@@ -251,8 +251,8 @@ agy 1.5.x 的 `session/update`（`usage_update`）**只带 `{ used, size }`**—
 - 建模：Google 的配额维度本来就是 **per-model**，`google` 族只是我们的聚合。图片模型（`gemini-3.1-flash-image`）是族里的一个**独立桶**，因此可用性必须分两层：族级 `cooldowns[family]` + 模型级 `modelCooldowns[baseSlug]`（持久化在 `pool.json`）。**不要**为图片新建 family/账号池：没有独立的图片配额组，也没有另一批图片账号，缺行还会被误判成“永远可用”。
 - 契约：
   - **判定**：`explainIneligibility(acc, family, now, pool, model)` 对 `modelCooldowns[model]` 未过期返回 `model-cooldown`；`isModelQuotaClear(acc, family, model, now)` 单独回答“这个模型的桶还有额度吗”。
-  - **选择**：`selectAccount(family, model?, quotaModel?)` 支持第二个配额维度；图片路径用 **`findAccount(...)`（不移动 active 指针）**，再叠加 `avoidAccountIds` 做本请求内的局部轮换。
-  - **记录**：模型级 429 只写 `recordModelFailure(account, model)`，**不写族冷却、不 `advanceAccount`**；成功调用 `recordModelSuccess` 清掉该模型冷却。`generate_image` 的工具级 429 由工具名直接绑定图片模型 id。
+  - **选择**：`selectAccount(family, model?, quotaModel?)` 支持第二个配额维度；图片路径用 **`findAccount(...)`（不移动 active 指针）**，再叠加 `avoidAccountIds` 做本请求内的排除（单账号下表示本轮暂不重选该账号）。
+  - **记录**：模型级 429 只写 `recordModelFailure(account, model)`，**不写族冷却、不触发账号轮换**；成功调用 `recordModelSuccess` 清掉该模型冷却。`generate_image` 的工具级 429 由工具名直接绑定图片模型 id。
   - **不再中断**：子代理/工具层面的模型级 429 只暂停该模型并提示，**不 kill 当前 run、不切账号**（此前会中断整轮，正是双会话同时中断的放大器）。
   - **UI**：族条保持健康（76% 仍是 76%），卡片下补一行 `单模型暂停: gemini-3.1-flash-image → 20:46`。
   - **迁移**：`PoolAdmin.dropModelScopedCooldowns()` 在池初始化时清掉历史遗留的模型级族冷却（reasons 命中模型级签名者）；用户的「清除冷却」同时清空该账号全部模型桶。

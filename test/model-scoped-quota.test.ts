@@ -59,7 +59,7 @@ test('direct tool 429: generate_image is flagged model-scoped, subagent family q
 })
 
 test('live failover: a model-scoped 429 pauses only that model, keeps the turn on the account', () => {
-  const calls = { record: 0, advance: 0, model: 0 }
+  const calls = { record: 0, model: 0 }
   const pool = {
     getAccounts: () => [],
     getAccount: () => undefined,
@@ -67,7 +67,6 @@ test('live failover: a model-scoped 429 pauses only that model, keeps the turn o
     isAccountEligible: () => false,
     recordFailure: () => { calls.record += 1 },
     recordModelFailure: () => { calls.model += 1 },
-    advanceAccount: () => { calls.advance += 1 },
   }
   const ctrl = createLiveQuotaController({
     pool: pool as never,
@@ -79,7 +78,6 @@ test('live failover: a model-scoped 429 pauses only that model, keeps the turn o
   })
   ctrl.handleQuotaExhausted({ source: 'tool-step', errorText: IMAGE_429, modelScoped: true, model: 'gemini-3.1-flash-image' })
   assert.equal(calls.record, 0, 'no family cooldown for a model-scoped refusal')
-  assert.equal(calls.advance, 0, 'the turn must NOT move to another account')
   assert.equal(calls.model, 1, 'only the image model is paused')
 
   const ctrl2 = createLiveQuotaController({

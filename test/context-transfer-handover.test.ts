@@ -435,7 +435,6 @@ test('issue #207: finalizeAttempt detects parseModelNotRecognized on Err.PROCESS
       const calls: Array<[string, ...unknown[]]> = []
       const pool = {
         markModelUnsupported: (...a: unknown[]) => calls.push(['markModelUnsupported', ...a]),
-        advanceAccount: (...a: unknown[]) => { calls.push(['advanceAccount', ...a]); return null },
       } as never
       const acc = { id: 'acc-model', dir, enabled: true, alias: 'acc-model', createdAt: 0, cooldowns: {}, quotas: {} } as never
       await finalizeAttempt({
@@ -466,8 +465,7 @@ test('issue #207: finalizeAttempt detects parseModelNotRecognized on Err.PROCESS
       })
       assert.deepEqual(calls, [
         ['markModelUnsupported', 'acc-model', 'gemini-99-unknown'],
-        ['advanceAccount', 'acc-model', 'google', 'gemini-99-unknown'],
-      ], `code=${code} must mark unsupported and advance account`)
+      ], `code=${code} must mark the unsupported model`)
     }
   })
 })

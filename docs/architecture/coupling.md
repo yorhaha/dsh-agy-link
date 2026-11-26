@@ -126,11 +126,13 @@ driving settlement.
 
 ## Residual single-account scheduling
 
-`AccountPoolManager.advanceAccount()` is already a no-op and selection only
-returns the primary account, but the multi-account vocabulary remains
-(`advanceAccount`, `avoidAccountIds`). If single-account is the product target,
-this is deletion work, not abstraction work. Tracked bridge symbols:
-`advanceAccount`, `avoidAccountIds`.
+Selection only returns the primary account and the no-op
+`advanceAccount()` hook has been removed; failure settlement now records
+cooldowns, model pauses and auth evidence without moving an account pointer.
+The remaining multi-account vocabulary is `avoidAccountIds`, which is still a
+public request option: with one account it means "do not re-pick the only
+account for this attempt", not a rotation pointer. Tracked bridge symbol:
+`avoidAccountIds`.
 
 ## Ratchet
 
@@ -152,4 +154,4 @@ Rules:
    new uses of the known bridges visible. `scripts/check-architecture.mjs`
    remains the import-cycle and direction gate.
 
-Current baseline: **21 files / 83 references / 10 tracked symbols**.
+Current baseline: **21 files / 70 references / 9 tracked symbols**.

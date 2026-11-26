@@ -22,7 +22,7 @@ import type { SlotUnavailableError } from './credential-slot.ts'
 
 export type SettlementPool = Pick<
   AccountPoolManager,
-  'markAuthRequired' | 'recordFailure' | 'advanceAccount' | 'noteAuthFailure'
+  'markAuthRequired' | 'recordFailure' | 'noteAuthFailure'
 > & Partial<Pick<AccountPoolManager, 'markModelUnsupported'>>
 
 export interface RunFailureFacts {
@@ -62,7 +62,7 @@ export function settleRunFailure(
   pool: SettlementPool | undefined,
   account: ManagedAccount | undefined,
   family: ModelFamily,
-  model: string | undefined,
+  _model: string | undefined,
   facts: RunFailureFacts,
 ): RunFailure | null {
   const { rawErr, resultText, resultOk, resultError, text } = facts
@@ -84,9 +84,9 @@ export function settleRunFailure(
     const resetMs = parseResetDurationMs(rawErr)
     const resetIso = resetMs && resetMs > 0 ? new Date(Date.now() + resetMs).toISOString() : undefined
     if (pool && account) {
-      if (modelScopedQuota) pool.advanceAccount(account.id, targetFam, model)
-      else pool.recordFailure(account.id, targetFam, rawErr || 'quota exhausted', resetIso)
-      if (targetFam !== family) pool.advanceAccount(account.id, family, model)
+      // A model-scoped bucket (e.g. an image model) must not cool the whole
+      // family; the per-model failure is recorded by the quota controller.
+      if (!modelScopedQuota) pool.recordFailure(account.id, targetFam, rawErr || 'quota exhausted', resetIso)
     }
     return { kind: 'quota', error: rawErr || 'Antigravity quota / rate limit reached' }
   }
@@ -95,7 +95,6 @@ export function settleRunFailure(
     const badModel = parseModelNotRecognized(rawErr)
     if (badModel !== null && pool && account) {
       if (typeof pool.markModelUnsupported === 'function') pool.markModelUnsupported(account.id, badModel)
-      pool.advanceAccount(account.id, family, model)
       return { kind: 'model_unsupported', error: rawErr }
     }
   }
@@ -103,13 +102,11 @@ export function settleRunFailure(
   const nonConsumable = resultOk === false && isNonConsumableResultError(false, resultError, resultText)
   if (nonConsumable || text === '') {
     if (looksLikeEligibilityFailure(rawErr)) {
-      if (pool && account) pool.advanceAccount(account.id, family, model)
       return { kind: 'eligibility', error: rawErr }
     }
     if (looksLikeAuthFailure(rawErr) || facts.sawAuthFailure === true) {
       if (pool && account && shouldMarkAuthRequired('AUTH', rawErr)) {
         pool.noteAuthFailure(account.id, rawErr)
-        pool.advanceAccount(account.id, family, model)
       }
       return { kind: 'auth', error: NOT_SIGNED_IN_ERROR }
     }
@@ -125,11 +122,10 @@ export function settleRunFailure(
 export function settleSlotUnavailable(
   pool: SettlementPool,
   account: ManagedAccount,
-  family: ModelFamily,
-  model: string | undefined,
+  _family: ModelFamily,
+  _model: string | undefined,
   err: SlotUnavailableError,
 ): void {
   const isPrimaryAccount = Boolean(account.systemHome) || !account.dir
   if (err.target !== 'primary' || isPrimaryAccount) pool.markAuthRequired(account.id, err.message)
-  else pool.advanceAccount(account.id, family, model)
 }
